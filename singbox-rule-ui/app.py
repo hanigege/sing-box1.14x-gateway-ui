@@ -627,6 +627,14 @@ def systemctl_show(unit, properties):
     return values
 
 
+def default_lan_ip():
+    result = run_command(["ip", "-o", "-4", "route", "get", "1.1.1.1"], timeout=8)
+    parts = result["stdout"].split()
+    if "src" in parts:
+        return parts[parts.index("src") + 1]
+    return ""
+
+
 def recent_unit_logs(unit, lines=80):
     result = run_command(["journalctl", "-u", unit, "--no-pager", "-n", str(lines)], timeout=12)
     text = result["stdout"] or result["stderr"]

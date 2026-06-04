@@ -378,7 +378,7 @@ async function api(path, options = {}) {
   if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
   const response = await fetch(path, { ...options, headers });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || body.check?.stderr || `HTTP ${response.status}`);
+  if (!response.ok) throw new Error(body.check?.stderr || body.error || `HTTP ${response.status}`);
   return body;
 }
 
