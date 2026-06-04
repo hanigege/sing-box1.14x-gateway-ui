@@ -1,28 +1,37 @@
 # sing-box-gateway-ui
 
-一键部署 `sing-box` 旁路网关、TProxy、分流规则自动更新和 Web UI。
+`sing-box-gateway-ui` 是一个面向旁路网关场景的一键安装项目，集成 `sing-box`、TProxy、分流规则自动更新、规则管理 UI 和 9090 Clash API 面板。
 
-项目目标很简单：**高效、简洁、sing-box 不死**。任何 UI 保存、规则更新、TProxy 同步都应先检测或可回滚，不能因为用户填错内容导致 `sing-box` 起不来。
+设计目标是：**高效、简洁、sing-box 不死**。所有配置保存、规则更新和 TProxy 同步都应先检查、可回滚，避免因为错误输入导致正在运行的 `sing-box` 无法启动。
+
+## 截图
+
+规则管理 UI：
+
+![Rule UI login](docs/images/rule-ui-login.jpg)
+
+9090 zashboard 面板：
+
+![zashboard](docs/images/zashboard.jpg)
 
 ## 功能
 
-- Web UI 管理白名单、黑名单、灰名单、DDNS 和节点
-- 保存前执行 `sing-box check`
-- 保存失败不写正式配置
-- 重启失败自动回滚上一份配置
-- DDNS 支持本地解析或代理解析
-- TProxy 自动检测默认网卡和本机网段
-- 节点服务器 IP 自动加入 TProxy bypass
-- 域名节点通过 sing-box 远程 DNS 解析后加入 TProxy bypass
-- FakeIP 网段不绕过 TProxy，交给 sing-box 分流
-- 规则集定时更新，失败保留旧文件
-- 维护页显示规则更新、TProxy、服务状态
-- 9090 Clash API 和本地 zashboard 控制面板
-- `sing-box-gateway-info` 一键查看两个 UI 的地址和密钥
+- 一键安装 `sing-box` 二进制、systemd 服务、TProxy 和 Web UI
+- 规则 UI 管理白名单、黑名单、灰名单、DDNS 和代理节点
+- 保存前执行 `sing-box check`，失败不覆盖正式配置
+- 重启失败自动回滚上一份可用配置
+- DDNS 可选择本地 DNS 或经代理节点访问的远程 DNS
+- TProxy 自动检测默认网卡、本机网段和 IPv6 前缀
+- 节点服务器 IP 自动加入 TProxy bypass，避免代理链路被透明代理套住
+- FakeIP 网段不绕过 TProxy，继续交给 `sing-box` 分流
+- 分流规则定时更新，下载失败保留旧文件
+- 维护页展示规则更新、TProxy、服务状态和节点服务器解析结果
+- 内置 9090 Clash API 和 zashboard 静态面板
+- `sing-box-gateway-info` 一键查看访问地址和密钥
 
 ## 支持系统
 
-第一版面向 Debian/Ubuntu 系统：
+当前安装器面向 apt 系 Linux：
 
 - Debian 12/13
 - Ubuntu 22.04/24.04/25.04
@@ -47,31 +56,20 @@ sudo bash scripts/install.sh
 
 安装过程中会先下载必需分流规则、生成 TProxy 规则脚本，并执行 `sing-box check`。检查不通过时不会启用服务。
 
+## 访问入口
+
 安装完成后会输出规则 UI token 和 9090 控制面板 secret。忘记也没关系，在网关机器上运行：
 
 ```bash
 sing-box-gateway-info
 ```
 
-入口：
+默认入口：
 
 ```text
-http://<你的旁路网关IP>:9091/
-http://<你的旁路网关IP>:9090/ui/
+http://<网关IP>:9091/
+http://<网关IP>:9090/ui/
 ```
-
-## 安全说明
-
-不要把以下内容提交到 GitHub：
-
-- 节点密码
-- UUID
-- Reality public key / short id
-- UI token
-- 真实服务器 IP
-- 私有域名
-
-本仓库只放模板和安装逻辑，不放生产机私密配置。
 
 ## 服务
 
@@ -82,15 +80,26 @@ http://<你的旁路网关IP>:9090/ui/
 - `singbox-rule-ui.service`
 - `update-sing-box-rules-jsdelivr.timer`
 
-常用命令：
+常用检查命令：
 
 ```bash
 systemctl status sing-box
 systemctl status sing-box-tproxy
 systemctl status singbox-rule-ui
 systemctl list-timers update-sing-box-rules-jsdelivr.timer
+sing-box-gateway-info
 ```
 
-## 项目状态
+## 安全
 
-当前是 MVP 阶段。已经在一台生产旁路网关上验证核心功能，下一步需要在干净新机器上完整测试安装器。
+不要把以下内容提交到公开仓库：
+
+- 节点密码
+- UUID
+- Reality public key / short id
+- UI token
+- 真实服务器 IP
+- 私有域名
+
+本仓库只保存安装逻辑和通用模板，不包含任何可用代理节点或私人配置。
+
