@@ -7,6 +7,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import ipaddress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -32,6 +33,7 @@ RULE_UPDATE_SCRIPT = Path(os.environ.get("RULE_UI_RULE_UPDATE_SCRIPT", "/usr/loc
 RULE_UPDATE_TIMER = os.environ.get("RULE_UI_RULE_UPDATE_TIMER", "update-sing-box-rules-jsdelivr.timer")
 RULE_UPDATE_SERVICE = os.environ.get("RULE_UI_RULE_UPDATE_SERVICE", "update-sing-box-rules-jsdelivr.service")
 TPROXY_SERVICE = os.environ.get("RULE_UI_TPROXY_SERVICE", "sing-box-tproxy.service")
+RULE_UI_SERVICE = os.environ.get("RULE_UI_SERVICE", "singbox-rule-ui.service")
 TPROXY_SCRIPT = Path(os.environ.get("RULE_UI_TPROXY_SCRIPT", "/usr/local/sbin/sing-box-tproxy-setup"))
 TPROXY_SYSCTL = Path(os.environ.get("RULE_UI_TPROXY_SYSCTL", "/etc/sysctl.d/99-sing-box-tproxy.conf"))
 TPROXY_PORT = int(os.environ.get("RULE_UI_TPROXY_PORT", "9888"))
@@ -551,6 +553,14 @@ def check_config(config_path=CONFIG_PATH):
 
 def restart_sing_box():
     return run_command(["systemctl", "restart", "sing-box.service"], timeout=20)
+
+
+def restart_rule_ui_later(delay=1.0):
+    def target():
+        time.sleep(delay)
+        subprocess.run(["systemctl", "restart", RULE_UI_SERVICE], capture_output=True, text=True, timeout=20)
+
+    threading.Thread(target=target, daemon=True).start()
 
 
 def systemctl_show(unit, properties):
@@ -1417,6 +1427,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = sync_tproxy()
                 status = 200 if result["code"] == 0 else 500
                 self.send_json({"sync": result, "maintenance": maintenance_status(), "state": load_state()}, status)
+                return
+            if parsed.path == "/api/ui/restart":
+                restart_rule_ui_later()
+                self.send_json({"scheduled": True, "service": RULE_UI_SERVICE})
                 return
             if parsed.path == "/api/proxy/select":
                 tag = str(payload.get("tag", "")).strip()

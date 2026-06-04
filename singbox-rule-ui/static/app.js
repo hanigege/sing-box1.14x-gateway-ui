@@ -56,6 +56,9 @@ const translations = {
     delayFailed: "Failed",
     refreshDelay: "Refresh delay",
     refreshMaintenance: "Refresh",
+    restartUi: "Restart UI",
+    restartingUi: "Restarting UI",
+    uiRestartScheduled: "UI restart requested. Reopen the page in a moment.",
     updateRules: "Update rule sets",
     syncTproxy: "Sync TProxy",
     updatingRules: "Updating rule sets",
@@ -208,6 +211,9 @@ const translations = {
     delayFailed: "失败",
     refreshDelay: "刷新延迟",
     refreshMaintenance: "刷新状态",
+    restartUi: "重启 UI",
+    restartingUi: "正在重启 UI",
+    uiRestartScheduled: "UI 重启请求已发送，稍后刷新页面即可。",
     updateRules: "立即更新分流规则",
     syncTproxy: "同步 TProxy",
     updatingRules: "正在更新分流规则",
@@ -349,6 +355,7 @@ function updateButtons() {
   $("restartBtn").disabled = busy;
   $("restartBtnNodes").disabled = busy;
   $("refreshMaintenanceBtn").disabled = busy;
+  $("restartUiBtn").disabled = busy;
   $("syncTproxyBtn").disabled = busy;
   $("updateRulesBtn").disabled = busy;
   $("saveBtn").disabled = busy || !dirty;
@@ -442,6 +449,7 @@ function applyLanguage() {
   $("restartBtnNodes").title = t("restartHint");
   $("refreshDelayBtn").textContent = t("refreshDelay");
   $("refreshMaintenanceBtn").textContent = t("refreshMaintenance");
+  $("restartUiBtn").textContent = t("restartUi");
   $("syncTproxyBtn").textContent = t("syncTproxy");
   $("updateRulesBtn").textContent = t("updateRules");
   $("nodeSubmit").textContent = editingNodeTag ? t("updateNode") : t("addNode");
@@ -1248,7 +1256,7 @@ async function save() {
     });
     state = result.state;
     maintenance = result.maintenance || maintenance;
-    await loadProxyInfo(false);
+    await loadProxyInfo(true);
     if (editingNodeTag && getNode(editingNodeTag)) {
       editingNodeSnapshot = stableNodeString(buildNodeFromForm());
       nodeEditChanged = false;
@@ -1258,7 +1266,7 @@ async function save() {
     if (result.tproxySync && result.tproxySync.code !== 0) {
       setStatus(`${t("savedAndRestarted")}；${t("tproxySyncFailed")}`, "bad");
     } else {
-      setStatus(t("savedAndRestarted"), "ok");
+      setStatus(`${t("savedAndRestarted")}；${t("delayUpdated")}`, "ok");
     }
   } catch (error) {
     setStatus(error.message || t("changesBlocked"), "bad");
@@ -1293,6 +1301,18 @@ async function restart() {
   }
 }
 
+async function restartUi() {
+  setBusy(true);
+  setStatus(t("restartingUi"));
+  try {
+    await api("/api/ui/restart", { method: "POST", body: "{}" });
+    setStatus(t("uiRestartScheduled"), "ok");
+  } catch (error) {
+    setStatus(error.message, "bad");
+    setBusy(false);
+  }
+}
+
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     active = tab.dataset.list;
@@ -1315,6 +1335,7 @@ $("restartBtn").addEventListener("click", restart);
 $("restartBtnNodes").addEventListener("click", restart);
 $("refreshDelayBtn").addEventListener("click", refreshDelays);
 $("refreshMaintenanceBtn").addEventListener("click", refreshMaintenance);
+$("restartUiBtn").addEventListener("click", restartUi);
 $("syncTproxyBtn").addEventListener("click", syncTproxy);
 $("updateRulesBtn").addEventListener("click", updateRuleSets);
 $("brandLink").addEventListener("click", goNodes);
