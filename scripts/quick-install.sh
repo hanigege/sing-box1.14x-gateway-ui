@@ -30,4 +30,13 @@ curl -fL "$url" -o "$archive"
 mkdir -p "$src"
 tar -xzf "$archive" -C "$src" --strip-components=1
 
+if [ "${SING_BOX_GATEWAY_DRY_RUN:-0}" = "1" ]; then
+  test -f "$src/scripts/install.sh"
+  test -f "$src/scripts/bootstrap_config.py"
+  test -f "$src/systemd/sing-box.service"
+  echo "一键安装链路检查通过。"
+  echo "安装器位置: $src/scripts/install.sh"
+  exit 0
+fi
+
 exec bash "$src/scripts/install.sh"
