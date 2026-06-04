@@ -113,8 +113,8 @@ def initial_nodes_from_file():
     return data
 
 
-def local_rule_set(tag, path):
-    return {"type": "local", "tag": tag, "format": "source", "path": path}
+def local_rule_set(tag, path, format_="source"):
+    return {"type": "local", "tag": tag, "format": format_, "path": path}
 
 
 def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
@@ -158,12 +158,12 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
             "auto_detect_interface": True,
             "default_domain_resolver": "remote-dns",
             "rule_set": [
-                local_rule_set("geosite-geolocation-!cn", "/etc/sing-box/rules/geosite/geolocation-!cn.srs"),
-                local_rule_set("geosite-cn", "/etc/sing-box/rules/geosite/cn.srs"),
-                local_rule_set("geosite-geolocation-cn", "/etc/sing-box/rules/geosite/geolocation-cn.srs"),
-                local_rule_set("geosite-icloud@cn", "/etc/sing-box/rules/geosite/icloud@cn.srs"),
-                local_rule_set("geosite-apple@cn", "/etc/sing-box/rules/geosite/apple@cn.srs"),
-                local_rule_set("geoip-cn", "/etc/sing-box/rules/geoip/cn.srs"),
+                local_rule_set("geosite-geolocation-!cn", "/etc/sing-box/rules/geosite/geolocation-!cn.srs", "binary"),
+                local_rule_set("geosite-cn", "/etc/sing-box/rules/geosite/cn.srs", "binary"),
+                local_rule_set("geosite-geolocation-cn", "/etc/sing-box/rules/geosite/geolocation-cn.srs", "binary"),
+                local_rule_set("geosite-icloud@cn", "/etc/sing-box/rules/geosite/icloud@cn.srs", "binary"),
+                local_rule_set("geosite-apple@cn", "/etc/sing-box/rules/geosite/apple@cn.srs", "binary"),
+                local_rule_set("geoip-cn", "/etc/sing-box/rules/geoip/cn.srs", "binary"),
                 local_rule_set("custom-whitelist", "/etc/sing-box/custom-rules/whitelist.json"),
                 local_rule_set("custom-blacklist", "/etc/sing-box/custom-rules/blacklist.json"),
                 local_rule_set("custom-greylist", "/etc/sing-box/custom-rules/greylist.json"),

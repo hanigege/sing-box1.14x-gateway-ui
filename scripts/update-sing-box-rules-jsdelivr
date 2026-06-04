@@ -44,7 +44,11 @@ fetch_one() {
   mkdir -p "$NEW_DIR" "$BASE_DIR/$subdir"
   for mirror in "${MIRRORS[@]}"; do
     url="$mirror/${repo}@${branch}/${subdir}-${name}.srs"
-    if curl -fsSL --connect-timeout 10 --max-time 60 "$url" -o "$tmp"; then
+    curl_flags=(-fsSL --connect-timeout 10 --max-time 60)
+    if [ "$required" = "0" ]; then
+      curl_flags=(-fsSL --silent --show-error --connect-timeout 10 --max-time 60)
+    fi
+    if curl "${curl_flags[@]}" "$url" -o "$tmp" 2>"$TMP_DIR/curl-${subdir}-${name}.log"; then
       if [ -s "$tmp" ] && [ "$(wc -c < "$tmp")" -gt 16 ]; then
         echo "downloaded ${subdir}/${name}.srs via ${mirror}"
         UPDATED_FILES+=("$subdir/$name.srs:$tmp")
@@ -57,7 +61,7 @@ fetch_one() {
     return 0
   fi
   if [ "$required" = "0" ]; then
-    echo "WARN: update skipped for optional missing ${subdir}/${name}.srs" >&2
+    echo "optional ${subdir}/${name}.srs unavailable; skipped safely"
     return 0
   fi
   echo "ERROR: update failed for ${subdir}/${name}.srs and no existing file" >&2
