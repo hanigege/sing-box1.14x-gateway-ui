@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily sing-box rule set update
+
+[Timer]
+OnCalendar=*-*-* 04:20:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

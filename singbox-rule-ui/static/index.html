@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sing-box</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1 id="brandLink" role="button" tabindex="0">Sing-box</h1>
+          <p id="meta">Loading</p>
+          <footer id="status" class="status">Ready</footer>
+        </div>
+        <div class="actions">
+          <select id="langSelect" aria-label="Language">
+            <option value="zh">中文</option>
+            <option value="en">English</option>
+          </select>
+          <button id="saveBtn" type="button" data-i18n="save">Save</button>
+        </div>
+      </header>
+
+      <section id="login" class="panel hidden">
+        <h2 data-i18n="accessToken">Access Token</h2>
+        <div class="login-row">
+          <input id="tokenInput" type="password" autocomplete="current-password" data-i18n-placeholder="pasteToken" placeholder="Paste token" />
+          <button id="tokenBtn" type="button" data-i18n="unlock">Unlock</button>
+        </div>
+      </section>
+
+      <section id="app" class="workspace hidden">
+        <nav class="tabs" aria-label="Rule lists">
+          <button class="tab active" data-list="whitelist" type="button"></button>
+          <button class="tab" data-list="blacklist" type="button"></button>
+          <button class="tab" data-list="greylist" type="button"></button>
+          <button class="tab" data-list="ddns" type="button"></button>
+          <button class="tab" data-list="nodes" type="button"></button>
+          <button class="tab" data-list="maintenance" type="button"></button>
+        </nav>
+
+        <section id="ruleEditor" class="panel editor">
+          <div class="editor-head">
+            <div>
+              <h2 id="listTitle">Whitelist</h2>
+              <p id="listSummary">0 entries</p>
+            </div>
+            <div class="tools">
+              <input id="searchInput" type="search" data-i18n-placeholder="filter" placeholder="Filter" />
+              <button id="restartBtn" class="secondary-btn" type="button" data-i18n="restart">Restart</button>
+            </div>
+          </div>
+
+          <form id="addForm" class="add-row">
+            <select id="typeInput" aria-label="Match type">
+              <option value="domain_suffix"></option>
+              <option value="domain"></option>
+              <option value="domain_keyword"></option>
+              <option value="domain_regex"></option>
+            </select>
+            <input id="valueInput" type="text" autocomplete="off" placeholder="example.com" />
+            <button type="submit" data-i18n="add">Add</button>
+          </form>
+
+          <div id="rows" class="rows"></div>
+        </section>
+
+        <section id="nodeEditor" class="panel editor hidden">
+          <div class="editor-head">
+            <div>
+              <h2 id="nodeTitle">Nodes</h2>
+              <p id="nodeSummary">0 nodes</p>
+            </div>
+            <div class="tools">
+              <select id="proxyDefault" class="hidden" aria-label="Proxy default"></select>
+              <button id="refreshDelayBtn" class="secondary-btn" type="button" data-i18n="refreshDelay">Refresh delay</button>
+              <button id="restartBtnNodes" class="secondary-btn" type="button" data-i18n="restart">Restart</button>
+            </div>
+          </div>
+
+          <section class="compact-settings auto-settings" aria-label="Auto settings">
+            <div>
+              <h3 data-i18n="autoTitle">Auto</h3>
+              <p data-i18n="autoNote">Urltest selects a node by latency.</p>
+            </div>
+            <label class="wide-field">
+              <span data-i18n="autoUrl">Test URL</span>
+              <input id="autoUrl" type="url" autocomplete="off" placeholder="https://www.gstatic.com/generate_204" />
+            </label>
+            <label>
+              <span data-i18n="autoInterval">Interval</span>
+              <input id="autoInterval" type="text" autocomplete="off" placeholder="2m" />
+            </label>
+            <label>
+              <span data-i18n="autoTolerance">Tolerance</span>
+              <input id="autoTolerance" type="number" min="0" step="1" placeholder="50" />
+            </label>
+          </section>
+
+          <section class="compact-settings" aria-label="FakeIP settings">
+            <div>
+              <h3 data-i18n="fakeipTitle">FakeIP</h3>
+              <p data-i18n="fakeipNote">Match this range with the upstream router.</p>
+            </div>
+            <label>
+              <span data-i18n="fakeipV4">IPv4 range</span>
+              <input id="fakeipV4" type="text" autocomplete="off" placeholder="28.0.0.0/8" />
+            </label>
+            <label>
+              <span data-i18n="fakeipV6">IPv6 range</span>
+              <input id="fakeipV6" type="text" autocomplete="off" placeholder="2001:2::/64" />
+            </label>
+          </section>
+
+          <form id="nodeForm" class="node-form">
+            <select id="nodeType" aria-label="Node type">
+              <option value="hysteria2">Hysteria2</option>
+              <option value="vless">VLESS Reality</option>
+            </select>
+            <input id="nodeTag" type="text" autocomplete="off" placeholder="tag" />
+            <input id="nodeServer" type="text" autocomplete="off" placeholder="server" />
+            <input id="nodePort" type="number" min="1" max="65535" placeholder="443" />
+            <input id="nodeSecret" type="text" autocomplete="off" placeholder="password / uuid" />
+            <input id="nodeSni" type="text" autocomplete="off" placeholder="tls server_name" />
+            <input id="nodeObfs" type="text" autocomplete="off" placeholder="obfs password" />
+            <input id="nodePublicKey" type="text" autocomplete="off" placeholder="reality public_key" />
+            <input id="nodeShortId" type="text" autocomplete="off" placeholder="short_id" />
+            <input id="nodeUp" type="number" min="1" placeholder="up Mbps" />
+            <input id="nodeDown" type="number" min="1" placeholder="down Mbps" />
+            <label class="checkline"><input id="nodeInsecure" type="checkbox" checked /> <span data-i18n="allowInsecure">Allow insecure TLS</span></label>
+            <button id="nodeSubmit" type="submit" data-i18n="addNode">Add node</button>
+            <button id="nodeCancel" class="secondary-btn hidden" type="button" data-i18n="cancelEdit">Cancel</button>
+          </form>
+
+          <div id="nodeRows" class="node-rows"></div>
+        </section>
+
+        <section id="maintenanceEditor" class="panel editor hidden">
+          <div class="editor-head">
+            <div>
+              <h2 id="maintenanceTitle">Maintenance</h2>
+              <p id="maintenanceSummary">Rule sets and TProxy</p>
+            </div>
+            <div class="tools">
+              <button id="refreshMaintenanceBtn" class="secondary-btn" type="button" data-i18n="refreshMaintenance">Refresh</button>
+              <button id="syncTproxyBtn" class="secondary-btn" type="button" data-i18n="syncTproxy">Sync TProxy</button>
+              <button id="updateRulesBtn" type="button" data-i18n="updateRules">Update rules</button>
+            </div>
+          </div>
+          <div id="maintenanceRows" class="maintenance-rows"></div>
+        </section>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

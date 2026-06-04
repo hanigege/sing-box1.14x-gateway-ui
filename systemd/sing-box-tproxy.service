@@ -1,0 +1,15 @@
+[Unit]
+Description=sing-box TProxy policy routing and nftables rules
+Documentation=https://sing-box.sagernet.org
+After=network-online.target
+Wants=network-online.target
+Before=sing-box.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/sing-box-tproxy-setup
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+
