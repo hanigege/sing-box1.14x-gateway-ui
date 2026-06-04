@@ -1182,7 +1182,7 @@ function buildNodeFromForm() {
   return { enabled: existing?.enabled ?? true, outbound };
 }
 
-function addNode(event) {
+async function addNode(event) {
   event.preventDefault();
   let node;
   try {
@@ -1209,6 +1209,7 @@ function addNode(event) {
   setDirty(true);
   setStatus(t("changed"));
   render();
+  await save();
 }
 
 function removeEntry(target) {
