@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import ipaddress
 import json
+import os
 import secrets
 import subprocess
 from pathlib import Path
@@ -13,6 +14,7 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 BASE_CONFIG_PATH = MANAGER_DIR / "base.json"
 NODES_PATH = MANAGER_DIR / "nodes.json"
 GROUPS_PATH = MANAGER_DIR / "groups.json"
+INITIAL_NODES_FILE = os.environ.get("SING_BOX_INITIAL_NODES_FILE", "")
 
 
 def ask(prompt, default=""):
@@ -92,6 +94,23 @@ def node_from_prompt(index, default_type):
             if short_id:
                 outbound["tls"]["reality"]["short_id"] = short_id
     return {"enabled": True, "outbound": outbound}
+
+
+def initial_nodes_from_file():
+    if not INITIAL_NODES_FILE:
+        return None
+    path = Path(INITIAL_NODES_FILE)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not data:
+        raise ValueError("SING_BOX_INITIAL_NODES_FILE must contain a non-empty node list")
+    for index, node in enumerate(data, 1):
+        if not isinstance(node, dict) or not isinstance(node.get("outbound"), dict):
+            raise ValueError(f"Node {index} is missing outbound")
+        outbound = node["outbound"]
+        if not outbound.get("tag") or outbound.get("type") not in {"hysteria2", "vless"}:
+            raise ValueError(f"Node {index} must have a supported outbound type and tag")
+        node.setdefault("enabled", True)
+    return data
 
 
 def local_rule_set(tag, path):
@@ -188,11 +207,13 @@ def main():
     ipaddress.ip_network(fake6, strict=False)
     if ipv6_dns:
         ipaddress.ip_address(ipv6_dns)
-    node_count = ask_int("Initial node count", 2)
-    nodes = []
-    for index in range(1, node_count + 1):
-        default_type = "hysteria2" if index == 1 else "vless"
-        nodes.append(node_from_prompt(index, default_type))
+    nodes = initial_nodes_from_file()
+    if nodes is None:
+        node_count = ask_int("Initial node count", 2)
+        nodes = []
+        for index in range(1, node_count + 1):
+            default_type = "hysteria2" if index == 1 else "vless"
+            nodes.append(node_from_prompt(index, default_type))
     secret = secrets.token_urlsafe(24)
     base = base_config(lan_ip, secret, fake4, fake6, ipv6_dns)
     default_node = nodes[0]["outbound"]["tag"]
