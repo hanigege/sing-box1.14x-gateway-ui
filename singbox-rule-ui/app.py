@@ -408,6 +408,7 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     apply_fakeip_settings(config, groups)
     apply_blacklist_dns_reject(config)
     apply_greylist_dns_fakeip(config)
+    apply_inbound_dns_fakeip_fallback(config)
     apply_ddns_dns_settings(config, groups)
     proxy_default = groups.get("proxy", {}).get("default", "Auto")
     if proxy_default not in {"Auto", *tags}:
@@ -586,6 +587,52 @@ def apply_greylist_dns_fakeip(config):
             "query_type": ["A", "AAAA"],
         },
     )
+
+
+def apply_inbound_dns_fakeip_fallback(config):
+    dns_rules = config.setdefault("dns", {}).setdefault("rules", [])
+    dns_inbounds = dns_inbound_tags(config)
+    dns_rules[:] = [
+        rule
+        for rule in dns_rules
+        if not (
+            isinstance(rule, dict)
+            and same_inbound(rule.get("inbound"), dns_inbounds)
+            and rule.get("query_type") == ["A", "AAAA"]
+            and rule.get("action") == "route"
+            and rule.get("server") in ("remote-dns", "fakeip-dns")
+            and "rule_set" not in rule
+        )
+    ]
+    insert_at = 0
+    for index, rule in enumerate(dns_rules):
+        if isinstance(rule, dict) and same_inbound(rule.get("inbound"), dns_inbounds):
+            insert_at = index + 1
+    dns_rules.insert(
+        insert_at,
+        {
+            "inbound": dns_inbounds,
+            "query_type": ["A", "AAAA"],
+            "action": "route",
+            "server": "fakeip-dns",
+            "rewrite_ttl": 60,
+        },
+    )
+
+
+def dns_inbound_tags(config):
+    tags = []
+    for inbound in config.get("inbounds", []) or []:
+        if isinstance(inbound, dict) and inbound.get("tag") in ("dns-in", "dns-in-v6"):
+            tags.append(inbound["tag"])
+    return tags or ["dns-in"]
+
+
+def same_inbound(value, tags):
+    expected = set(tags)
+    if isinstance(value, list):
+        return set(value) == expected
+    return value in expected and len(expected) == 1
 
 
 def apply_ddns_dns_settings(config, groups):

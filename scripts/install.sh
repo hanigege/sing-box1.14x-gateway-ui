@@ -124,11 +124,20 @@ disable_systemd_resolved_stub() {
     return
   fi
   mkdir -p "$MANAGER_DIR"
+  if [ -e /etc/systemd/resolved.conf ] && [ ! -e "$MANAGER_DIR/resolved.conf.before-sing-box" ]; then
+    cp -a /etc/systemd/resolved.conf "$MANAGER_DIR/resolved.conf.before-sing-box" || true
+  fi
   if [ -e /etc/resolv.conf ] && [ ! -e "$MANAGER_DIR/resolv.conf.before-sing-box" ]; then
     cp -a /etc/resolv.conf "$MANAGER_DIR/resolv.conf.before-sing-box" || true
   fi
   nameservers="$(collect_host_nameservers)"
-  systemctl disable --now systemd-resolved.service >/dev/null 2>&1 || true
+  touch /etc/systemd/resolved.conf
+  if grep -qE '^[#[:space:]]*DNSStubListener=' /etc/systemd/resolved.conf; then
+    sed -i 's/^[#[:space:]]*DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
+  else
+    printf '\nDNSStubListener=no\n' >> /etc/systemd/resolved.conf
+  fi
+  systemctl reload-or-restart systemd-resolved.service >/dev/null 2>&1 || true
   if [ -L /etc/resolv.conf ] || ! awk '
     /^nameserver[[:space:]]+/ &&
     $2 !~ /^127\./ &&

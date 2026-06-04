@@ -61,12 +61,16 @@ cleanup_tproxy_runtime() {
 }
 
 restore_host_resolver() {
+  resolved_backup="$CONFIG_DIR/manager/resolved.conf.before-sing-box"
   backup="$CONFIG_DIR/manager/resolv.conf.before-sing-box"
-  if [ ! -e "$backup" ]; then
-    return
+  if [ -e "$resolved_backup" ]; then
+    cp -a "$resolved_backup" /etc/systemd/resolved.conf || true
   fi
   if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files systemd-resolved.service >/dev/null 2>&1; then
-    systemctl enable --now systemd-resolved.service >/dev/null 2>&1 || true
+    systemctl reload-or-restart systemd-resolved.service >/dev/null 2>&1 || true
+  fi
+  if [ ! -e "$backup" ]; then
+    return
   fi
   rm -f /etc/resolv.conf
   cp -a "$backup" /etc/resolv.conf || true
