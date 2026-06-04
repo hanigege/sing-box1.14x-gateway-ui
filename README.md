@@ -41,15 +41,19 @@
 
 ## 一键安装
 
-```bash
-curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash
-```
-
-如果当前机器 DNS 被污染，访问 GitHub 出现证书域名不匹配，可先用自己的反代入口下载安装脚本：
+推荐使用反代入口，适合新机器还没有代理环境、GitHub DNS 可能被污染的情况：
 
 ```bash
 curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui/main/scripts/quick-install.sh | sudo bash
 ```
+
+如果当前机器直连 GitHub 稳定，也可以使用官方入口：
+
+```bash
+curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash
+```
+
+安装脚本内部下载项目源码、sing-box 二进制和 zashboard 时会先尝试直连，失败后自动尝试反代地址。
 
 安装器会交互式询问：
 
@@ -71,19 +75,19 @@ curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-
 默认卸载会停止服务、移除 UI、systemd 单元、TProxy 运行规则和辅助脚本，但保留 `/etc/sing-box` 配置和 `/usr/local/bin/sing-box`，方便以后恢复：
 
 ```bash
-curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s uninstall
+curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui/main/scripts/quick-install.sh | sudo bash -s uninstall
 ```
 
 彻底删除配置、规则缓存和 sing-box 二进制：
 
 ```bash
-curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s purge
+curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui/main/scripts/quick-install.sh | sudo bash -s purge
 ```
 
-DNS 污染时同样可换成反代入口：
+直连 GitHub 稳定时也可以使用官方入口：
 
 ```bash
-curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui/main/scripts/quick-install.sh | sudo bash -s purge
+curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s purge
 ```
 
 ## Git 安装

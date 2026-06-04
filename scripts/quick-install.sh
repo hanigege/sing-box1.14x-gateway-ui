@@ -4,6 +4,7 @@ set -euo pipefail
 REPO="${SING_BOX_GATEWAY_REPO:-hanigege/sing-box-gateway-ui}"
 REF="${SING_BOX_GATEWAY_REF:-main}"
 ACTION="${1:-install}"
+PROXY_PREFIX="${SING_BOX_GATEWAY_PROXY_PREFIX:-https://scg.jgaga.tk/}"
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "缺少 curl，请先安装 curl。" >&2
@@ -24,10 +25,23 @@ trap cleanup EXIT
 
 archive="$tmp/source.tar.gz"
 src="$tmp/source"
-url="https://github.com/${REPO}/archive/refs/heads/${REF}.tar.gz"
+
+download_first() {
+  local output="$1"
+  shift
+  local url
+  for url in "$@"; do
+    echo "尝试下载: $url"
+    if curl -fL --connect-timeout 10 --max-time 120 "$url" -o "$output"; then
+      return 0
+    fi
+  done
+  return 1
+}
 
 echo "正在下载 sing-box-gateway-ui ${REPO}@${REF}..."
-curl -fL "$url" -o "$archive"
+archive_url="https://github.com/${REPO}/archive/refs/heads/${REF}.tar.gz"
+download_first "$archive" "$archive_url" "${PROXY_PREFIX}${archive_url}"
 mkdir -p "$src"
 tar -xzf "$archive" -C "$src" --strip-components=1
 
