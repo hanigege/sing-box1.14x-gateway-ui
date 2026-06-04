@@ -16,6 +16,8 @@ const translations = {
     accessToken: "Access Token",
     pasteToken: "Paste token",
     unlock: "Unlock",
+    logout: "Logout",
+    loggedOut: "Logged out",
     filter: "Filter",
     loaded: "Loaded",
     tokenRequired: "Token required",
@@ -176,6 +178,8 @@ const translations = {
     accessToken: "访问令牌",
     pasteToken: "粘贴 token",
     unlock: "解锁",
+    logout: "退出",
+    loggedOut: "已退出",
     filter: "筛选",
     loaded: "已加载",
     tokenRequired: "需要 token",
@@ -362,6 +366,7 @@ function setDirty(value) {
 }
 
 function updateButtons() {
+  $("logoutBtn").disabled = busy;
   $("refreshMaintenanceBtn").disabled = busy;
   $("restartSingboxBtn").disabled = busy;
   $("restartTproxyBtn").disabled = busy;
@@ -392,6 +397,21 @@ function showLogin() {
 function showApp() {
   $("login").classList.add("hidden");
   $("app").classList.remove("hidden");
+}
+
+function logout() {
+  token = "";
+  localStorage.removeItem("ruleUiToken");
+  state = { lists: { whitelist: [], blacklist: [], greylist: [], ddns: [] }, nodes: [], groups: {}, meta: {} };
+  maintenance = {};
+  runtimeProxy = { now: null, available: false };
+  delays = {};
+  metaUpdatedAt = null;
+  setDirty(false);
+  $("tokenInput").value = "";
+  showLogin();
+  renderMeta();
+  setStatus(t("loggedOut"), "ok");
 }
 
 async function load() {
@@ -455,6 +475,7 @@ function applyLanguage() {
     tab.textContent = translations[lang].lists[tab.dataset.list].title;
   });
   $("saveBtn").title = t("saveHint");
+  $("logoutBtn").textContent = t("logout");
   $("restartSingboxBtn").textContent = t("restartSingbox");
   $("restartSingboxBtn").title = t("restartHint");
   $("restartTproxyBtn").textContent = t("restartTproxy");
@@ -1368,6 +1389,7 @@ $("nodeCancel").addEventListener("click", clearNodeForm);
 $("searchInput").addEventListener("input", render);
 $("typeInput").addEventListener("change", updateValueHint);
 $("saveBtn").addEventListener("click", save);
+$("logoutBtn").addEventListener("click", logout);
 $("refreshDelayBtn").addEventListener("click", refreshDelays);
 $("refreshMaintenanceBtn").addEventListener("click", refreshMaintenance);
 $("restartSingboxBtn").addEventListener("click", restart);
