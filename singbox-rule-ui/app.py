@@ -407,6 +407,7 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     apply_cache_file_settings(config)
     apply_fakeip_settings(config, groups)
     apply_blacklist_dns_reject(config)
+    apply_greylist_dns_fakeip(config)
     apply_ddns_dns_settings(config, groups)
     proxy_default = groups.get("proxy", {}).get("default", "Auto")
     if proxy_default not in {"Auto", *tags}:
@@ -562,6 +563,29 @@ def apply_blacklist_dns_reject(config):
         if not (isinstance(rule, dict) and rule.get("rule_set") == CUSTOM_TAGS["blacklist"] and rule.get("action") == "reject")
     ]
     dns_rules.insert(0, {"rule_set": CUSTOM_TAGS["blacklist"], "action": "reject"})
+
+
+def apply_greylist_dns_fakeip(config):
+    dns_rules = config.setdefault("dns", {}).setdefault("rules", [])
+    dns_rules[:] = [
+        rule
+        for rule in dns_rules
+        if not (
+            isinstance(rule, dict)
+            and rule.get("rule_set") == CUSTOM_TAGS["greylist"]
+            and rule.get("server") == "fakeip-dns"
+        )
+    ]
+    dns_rules.insert(
+        1,
+        {
+            "rule_set": CUSTOM_TAGS["greylist"],
+            "action": "route",
+            "server": "fakeip-dns",
+            "rewrite_ttl": 60,
+            "query_type": ["A", "AAAA"],
+        },
+    )
 
 
 def apply_ddns_dns_settings(config, groups):
