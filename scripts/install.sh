@@ -72,7 +72,11 @@ install_clash_ui() {
     | python3 -c 'import json,sys; assets=json.load(sys.stdin)["assets"]; print(next(item["browser_download_url"] for item in assets if item["name"] == "dist.zip"))' \
     | xargs curl -fL -o "$tmp/zashboard.zip"; then
     unzip -oq "$tmp/zashboard.zip" -d "$tmp/zashboard"
-    rsync -a --delete "$tmp/zashboard/" "$CLASH_UI_DIR/"
+    if [ -d "$tmp/zashboard/dist" ]; then
+      rsync -a --delete "$tmp/zashboard/dist/" "$CLASH_UI_DIR/"
+    else
+      rsync -a --delete "$tmp/zashboard/" "$CLASH_UI_DIR/"
+    fi
     echo "zashboard installed to $CLASH_UI_DIR"
   else
     echo "WARN: zashboard download failed; sing-box will still run, and port 9090 API remains available." >&2
