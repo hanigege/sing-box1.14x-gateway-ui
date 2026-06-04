@@ -102,13 +102,11 @@ disable_systemd_resolved_stub() {
   if ! systemctl list-unit-files systemd-resolved.service >/dev/null 2>&1; then
     return
   fi
-  lan_ip="$(ip -o -4 route get 1.1.1.1 | awk '{for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}')"
   systemctl disable --now systemd-resolved.service >/dev/null 2>&1 || true
   rm -f /etc/resolv.conf
   {
-    if [ -n "$lan_ip" ]; then
-      echo "nameserver $lan_ip"
-    fi
+    # The gateway itself must not use its own FakeIP DNS as the primary resolver:
+    # local output is not TProxy-captured, so host-side curl/apt can connect to FakeIP directly.
     echo "nameserver 223.5.5.5"
     echo "nameserver 1.1.1.1"
     echo "options timeout:2 attempts:2"

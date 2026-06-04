@@ -122,7 +122,8 @@ def main():
 
     RESOLV_PATH.unlink(missing_ok=True)
     RESOLV_PATH.write_text(
-        f"nameserver {lan_ip}\n"
+        # The gateway host should use real upstream DNS. LAN clients can still use
+        # the gateway DNS listener, but local host output is not TProxy-captured.
         "nameserver 223.5.5.5\n"
         "nameserver 1.1.1.1\n"
         "options timeout:2 attempts:2\n",
