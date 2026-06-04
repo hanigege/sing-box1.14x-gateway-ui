@@ -700,6 +700,12 @@ async function updateRuleSets() {
   try {
     const result = await api("/api/rules/update", { method: "POST", body: "{}" });
     maintenance = result.maintenance || maintenance;
+    if (result.update?.summary) {
+      maintenance.ruleUpdate = maintenance.ruleUpdate || {};
+      maintenance.ruleUpdate.summary = result.update.summary;
+      maintenance.ruleUpdate.result = result.update.code === 0 ? "success" : "failed";
+      maintenance.ruleUpdate.log = [result.update.stdout, result.update.stderr].filter(Boolean).join("\n");
+    }
     if (result.state) state = result.state;
     render();
     if (result.update?.code !== 0) {
