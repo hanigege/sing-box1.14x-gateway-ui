@@ -17,6 +17,7 @@
 ## 功能
 
 - 一键安装 `sing-box` 二进制、systemd 服务、TProxy 和 Web UI
+- 默认使用仓库内置并验证过的 `sing-box 1.13.13`，同时包含 `amd64` 和 `arm64`
 - 规则 UI 管理白名单、黑名单、灰名单、DDNS 和代理节点
 - 保存前执行 `sing-box check`，失败不覆盖正式配置
 - 重启失败自动回滚上一份可用配置
@@ -53,10 +54,12 @@ curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-
 curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash
 ```
 
-安装脚本内部下载项目源码、sing-box 二进制和 zashboard 时会优先尝试反代地址，失败后再尝试 GitHub 官方地址。
+安装脚本默认使用仓库内置的 `sing-box 1.13.13`，避免上游版本变化导致配置不兼容。项目源码和 zashboard 下载会优先尝试反代地址，失败后再尝试 GitHub 官方地址。
 
 安装器会交互式询问：
 
+- sing-box 来源，默认 `bundled`
+- CPU 架构，默认 `auto`，也可以手动选 `amd64` 或 `arm64`
 - 是否使用简单模式，默认 yes
 - 旁路网关的 LAN IPv4 地址
 
@@ -69,6 +72,18 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 - 是否使用模板节点，或手动输入节点 tag、server、端口和认证参数
 
 安装过程中会先下载必需分流规则、生成 TProxy 规则脚本，并执行 `sing-box check`。检查不通过时不会启用服务。
+
+如需在线下载上游最新版：
+
+```bash
+SING_BOX_SOURCE=latest sudo bash scripts/install.sh
+```
+
+如需指定版本和架构：
+
+```bash
+SING_BOX_SOURCE=custom SING_BOX_VERSION=1.13.13 SING_BOX_ARCH=arm64 sudo bash scripts/install.sh
+```
 
 ## 一键卸载
 

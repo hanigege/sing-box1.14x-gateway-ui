@@ -2,7 +2,10 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SING_BOX_VERSION="${SING_BOX_VERSION:-latest}"
+SING_BOX_BUNDLED_VERSION="${SING_BOX_BUNDLED_VERSION:-1.13.13}"
+SING_BOX_VERSION="${SING_BOX_VERSION:-$SING_BOX_BUNDLED_VERSION}"
+SING_BOX_SOURCE="${SING_BOX_SOURCE:-bundled}"
+SING_BOX_ARCH="${SING_BOX_ARCH:-auto}"
 INSTALL_DIR="/opt/singbox-rule-ui"
 CONFIG_DIR="/etc/sing-box"
 MANAGER_DIR="$CONFIG_DIR/manager"
@@ -29,11 +32,62 @@ install_packages() {
 }
 
 detect_arch() {
-  case "$(uname -m)" in
+  local arch="${1:-${SING_BOX_ARCH}}"
+  if [ "$arch" = "auto" ] || [ -z "$arch" ]; then
+    arch="$(uname -m)"
+  fi
+  case "$arch" in
     x86_64|amd64) echo "amd64" ;;
     aarch64|arm64) echo "arm64" ;;
-    *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+    *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
   esac
+}
+
+ask() {
+  local prompt="$1" default="${2:-}" value suffix=""
+  [ -n "$default" ] && suffix=" [$default]"
+  if [ "${SING_BOX_GATEWAY_ASSUME_DEFAULTS:-0}" = "1" ]; then
+    printf "%s\n" "$default"
+    return
+  fi
+  if [ -r /dev/tty ]; then
+    printf "%s%s: " "$prompt" "$suffix" > /dev/tty
+    IFS= read -r value < /dev/tty || value=""
+  else
+    value=""
+  fi
+  printf "%s\n" "${value:-$default}"
+}
+
+choose_sing_box_runtime() {
+  if [ "${SING_BOX_GATEWAY_ASSUME_DEFAULTS:-0}" = "1" ]; then
+    SING_BOX_SOURCE="${SING_BOX_SOURCE:-bundled}"
+    SING_BOX_ARCH="${SING_BOX_ARCH:-auto}"
+    return
+  fi
+  if [ ! -r /dev/tty ]; then
+    echo "No interactive terminal detected; using bundled sing-box ${SING_BOX_BUNDLED_VERSION} and auto architecture."
+    SING_BOX_SOURCE="bundled"
+    SING_BOX_VERSION="$SING_BOX_BUNDLED_VERSION"
+    SING_BOX_ARCH="${SING_BOX_ARCH:-auto}"
+    return
+  fi
+  echo
+  echo "sing-box binary:"
+  echo "  bundled = use repository-tested sing-box ${SING_BOX_BUNDLED_VERSION} (recommended)"
+  echo "  latest  = download latest upstream release"
+  echo "  custom  = download SING_BOX_VERSION"
+  SING_BOX_SOURCE="$(ask "sing-box source: bundled/latest/custom" "$SING_BOX_SOURCE")"
+  case "$SING_BOX_SOURCE" in
+    bundled|latest|custom) ;;
+    *) SING_BOX_SOURCE="bundled" ;;
+  esac
+  if [ "$SING_BOX_SOURCE" = "custom" ]; then
+    SING_BOX_VERSION="$(ask "sing-box version" "$SING_BOX_VERSION")"
+  elif [ "$SING_BOX_SOURCE" = "bundled" ]; then
+    SING_BOX_VERSION="$SING_BOX_BUNDLED_VERSION"
+  fi
+  SING_BOX_ARCH="$(ask "CPU architecture: auto/amd64/arm64" "$SING_BOX_ARCH")"
 }
 
 download_urls() {
@@ -84,7 +138,26 @@ install_sing_box() {
     return
   fi
   arch="$(detect_arch)"
-  if [ "$SING_BOX_VERSION" = "latest" ]; then
+  if [ "$SING_BOX_SOURCE" = "bundled" ]; then
+    archive="$PROJECT_DIR/third_party/sing-box/v${SING_BOX_BUNDLED_VERSION}/sing-box-${SING_BOX_BUNDLED_VERSION}-linux-${arch}.tar.gz"
+    sums="$PROJECT_DIR/third_party/sing-box/v${SING_BOX_BUNDLED_VERSION}/SHA256SUMS"
+    if [ ! -r "$archive" ]; then
+      echo "Bundled sing-box archive not found: $archive" >&2
+      echo "Set SING_BOX_SOURCE=latest to download from upstream." >&2
+      exit 1
+    fi
+    if [ -r "$sums" ]; then
+      (cd "$(dirname "$sums")" && sha256sum -c --ignore-missing SHA256SUMS >/dev/null)
+    fi
+    version="$SING_BOX_BUNDLED_VERSION"
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    echo "Installing bundled sing-box ${version} (${arch})"
+    tar -xzf "$archive" -C "$tmp"
+    install -m 0755 "$tmp"/sing-box-*/sing-box /usr/local/bin/sing-box
+    return
+  fi
+  if [ "$SING_BOX_SOURCE" = "latest" ] || [ "$SING_BOX_VERSION" = "latest" ]; then
     api_url="https://api.github.com/repos/SagerNet/sing-box/releases/latest"
     api_urls=($(download_urls "$api_url"))
     version="$(curl_text_first "${api_urls[@]}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))')"
@@ -290,6 +363,7 @@ main() {
       ;;
   esac
   need_root
+  choose_sing_box_runtime
   ensure_bootstrap_resolver
   install_packages
   install_files
