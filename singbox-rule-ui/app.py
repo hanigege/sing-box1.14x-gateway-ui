@@ -1369,14 +1369,14 @@ def update_rule_sets():
         },
     )
     try:
-        result = run_command([str(RULE_UPDATE_SCRIPT)], timeout=90)
+        result = run_command([str(RULE_UPDATE_SCRIPT)], timeout=300)
     except subprocess.TimeoutExpired as exc:
         stdout = (exc.stdout or "").strip() if isinstance(exc.stdout, str) else ""
         stderr = (exc.stderr or "").strip() if isinstance(exc.stderr, str) else ""
         result = {
             "code": 124,
             "stdout": stdout,
-            "stderr": (stderr + "\nManual rule update timed out. Existing rule files were kept.").strip(),
+            "stderr": (stderr + "\nManual rule update is taking longer than expected. Existing rule files were kept.").strip(),
         }
     text = "\n".join(item for item in (result.get("stdout"), result.get("stderr")) if item)
     result["summary"] = rule_update_summary(text)
@@ -1385,7 +1385,7 @@ def update_rule_sets():
         {
             "startedAt": started,
             "finishedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "result": "success" if result["code"] == 0 else "failed",
+            "result": "success" if result["code"] == 0 else "slow" if result["code"] == 124 else "failed",
             "code": result["code"],
             "log": text,
             "summary": result["summary"],

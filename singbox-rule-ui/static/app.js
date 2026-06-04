@@ -78,6 +78,7 @@ const translations = {
     syncTproxy: "Sync TProxy",
     updatingRules: "Updating rule sets",
     ruleUpdateRunning: "Updating now. Please wait.",
+    ruleUpdateSlow: "Update is slow. Existing rule files are still in use.",
     syncingTproxy: "Syncing TProxy",
     rulesUpdated: "Rule sets updated safely",
     tproxySynced: "TProxy synced safely",
@@ -104,11 +105,11 @@ const translations = {
     timerStatus: "Timer",
     tproxyService: "TProxy service",
     defaultInterface: "Default interface",
-    currentIpv6Prefix: "Current IPv6 prefix",
-    currentIpv4Prefix: "Current IPv4 prefix",
-    scriptIpv6Prefix: "Script bypass prefix",
-    plannedBypass4: "IPv4 bypass",
-    plannedBypass6: "IPv6 bypass",
+    currentIpv6Prefix: "Local IPv6 LAN prefixes",
+    currentIpv4Prefix: "Local IPv4 LAN prefix",
+    scriptIpv6Prefix: "IPv6 destinations not intercepted",
+    plannedBypass4: "IPv4 destinations not intercepted",
+    plannedBypass6: "IPv6 destinations not intercepted",
     fakeipRanges: "FakeIP ranges",
     nodeServerIps: "Node server addresses",
     tproxyPolicy: "LAN/private and node server IPs bypass TProxy. LAN DNS port 53 is redirected to sing-box DNS. FakeIP ranges are captured by TProxy and handled by sing-box.",
@@ -249,6 +250,7 @@ const translations = {
     syncTproxy: "同步 TProxy",
     updatingRules: "正在更新分流规则",
     ruleUpdateRunning: "正在更新，请稍候。",
+    ruleUpdateSlow: "更新较慢，旧规则仍在使用，不影响 sing-box。",
     syncingTproxy: "正在同步 TProxy",
     rulesUpdated: "分流规则已安全更新",
     tproxySynced: "TProxy 已安全同步",
@@ -275,11 +277,11 @@ const translations = {
     timerStatus: "定时器",
     tproxyService: "TProxy 服务",
     defaultInterface: "默认网卡",
-    currentIpv6Prefix: "当前 IPv6 前缀",
-    currentIpv4Prefix: "当前 IPv4 前缀",
-    scriptIpv6Prefix: "脚本绕过前缀",
-    plannedBypass4: "IPv4 绕过",
-    plannedBypass6: "IPv6 绕过",
+    currentIpv6Prefix: "本机 IPv6 局域网段",
+    currentIpv4Prefix: "本机 IPv4 局域网段",
+    scriptIpv6Prefix: "不接管的 IPv6 目标",
+    plannedBypass4: "不接管的 IPv4 目标",
+    plannedBypass6: "不接管的 IPv6 目标",
     fakeipRanges: "FakeIP 网段",
     nodeServerIps: "节点服务器地址",
     tproxyPolicy: "内网/本机网段和节点服务器 IP 会绕过 TProxy；LAN 进来的 53 端口 DNS 会被劫回 sing-box；FakeIP 网段不会绕过，会交给 sing-box 分流。",
@@ -792,14 +794,19 @@ async function updateRuleSets() {
     if (result.update?.summary) {
       maintenance.ruleUpdate = maintenance.ruleUpdate || {};
       maintenance.ruleUpdate.summary = result.update.summary;
-      maintenance.ruleUpdate.result = result.update.code === 0 ? "success" : "failed";
+      maintenance.ruleUpdate.result = result.update.code === 0 ? "success" : result.update.code === 124 ? "slow" : "failed";
       maintenance.ruleUpdate.log = [result.update.stdout, result.update.stderr].filter(Boolean).join("\n");
     }
     if (result.state) state = result.state;
     render();
     if (result.update?.code !== 0) {
-      finishActionButton("updateRulesBtn", "actionFailed", "failed", "updateRules");
-      setStatus(result.update?.stderr || t("restartFailed"), "bad");
+      if (result.update?.code === 124) {
+        finishActionButton("updateRulesBtn", "actionDone", "done", "updateRules");
+        setStatus(t("ruleUpdateSlow"), "ok");
+      } else {
+        finishActionButton("updateRulesBtn", "actionFailed", "failed", "updateRules");
+        setStatus(result.update?.stderr || t("restartFailed"), "bad");
+      }
       return;
     }
     finishActionButton("updateRulesBtn", "actionDone", "done", "updateRules");

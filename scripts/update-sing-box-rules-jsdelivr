@@ -55,9 +55,15 @@ fetch_one() {
     else
       url="$mirror/${repo}@${branch}/${subdir}-${name}.srs"
     fi
-    curl_flags=(-4 -fsSL --connect-timeout 4 --max-time 12)
+    curl_flags=(-4 -fsSL --connect-timeout 3 --max-time 7)
+    if [[ "$mirror" == https://scg.jgaga.tk/* ]]; then
+      curl_flags=(-4 -fsSL --connect-timeout 4 --max-time 12)
+    fi
     if [ "$required" = "0" ]; then
-      curl_flags=(-4 -fsSL --silent --show-error --connect-timeout 3 --max-time 8)
+      curl_flags=(-4 -fsSL --silent --show-error --connect-timeout 2 --max-time 5)
+      if [[ "$mirror" == https://scg.jgaga.tk/* ]]; then
+        curl_flags=(-4 -fsSL --silent --show-error --connect-timeout 3 --max-time 8)
+      fi
     fi
     if curl "${curl_flags[@]}" "$url" -o "$tmp" 2>"$TMP_DIR/curl-${subdir}-${name}.log"; then
       if [ -s "$tmp" ] && [ "$(wc -c < "$tmp")" -gt 16 ]; then
