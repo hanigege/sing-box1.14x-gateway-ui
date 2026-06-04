@@ -94,6 +94,60 @@ install_initial_rules() {
   RULE_UPDATE_RESTART=0 /usr/local/sbin/update-sing-box-rules-jsdelivr
 }
 
+write_fallback_resolver() {
+  rm -f /etc/resolv.conf
+  {
+    echo "nameserver 223.5.5.5"
+    echo "nameserver 1.1.1.1"
+    echo "options timeout:2 attempts:2"
+  } > /etc/resolv.conf
+}
+
+resolver_has_external_nameserver() {
+  awk '
+    /^nameserver[[:space:]]+/ &&
+    $2 !~ /^127\./ &&
+    $2 != "::1" &&
+    $2 != "0.0.0.0" &&
+    $2 != "::" { found=1 }
+    END { exit found ? 0 : 1 }
+  ' /etc/resolv.conf 2>/dev/null
+}
+
+ensure_bootstrap_resolver() {
+  if resolver_has_external_nameserver; then
+    return
+  fi
+  echo "No usable external DNS resolver found in /etc/resolv.conf; writing temporary public resolvers."
+  write_fallback_resolver
+}
+
+port53_owner() {
+  ss -H -ltnup 'sport = :53' 2>/dev/null | awk '
+    match($0, /users:\(\("([^"]+)"/, m) { print m[1] }
+  ' | sort -u | paste -sd, -
+}
+
+ensure_dns_port_available() {
+  owner="$(port53_owner)"
+  if [ -z "$owner" ]; then
+    return
+  fi
+  case "$owner" in
+    *systemd-resolve*|*systemd-resolved*)
+      disable_systemd_resolved_stub
+      ;;
+    *sing-box*)
+      return
+      ;;
+    *)
+      echo "Port 53 is already in use by: $owner" >&2
+      echo "Please stop that DNS service first, or free port 53 before installing." >&2
+      exit 1
+      ;;
+  esac
+}
+
 install_tproxy_setup() {
   python3 "$PROJECT_DIR/scripts/sync_tproxy_setup.py"
 }
@@ -186,6 +240,7 @@ main() {
       ;;
   esac
   need_root
+  ensure_bootstrap_resolver
   install_packages
   install_sing_box
   install_files
@@ -193,7 +248,7 @@ main() {
   bootstrap_config
   install_initial_rules
   install_tproxy_setup
-  disable_systemd_resolved_stub
+  ensure_dns_port_available
   /usr/local/bin/sing-box check -c /etc/sing-box/config.json
   enable_services
   refresh_tproxy_after_start

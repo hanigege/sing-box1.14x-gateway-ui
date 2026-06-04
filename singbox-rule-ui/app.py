@@ -467,6 +467,9 @@ def apply_portable_listeners(config):
         kept_inbounds.append(inbound)
     if kept_inbounds != inbounds:
         config["inbounds"] = kept_inbounds
+    if ipv6_listen and not any(isinstance(item, dict) and item.get("tag") == "dns-in-v6" for item in kept_inbounds):
+        config.setdefault("inbounds", []).append({"type": "direct", "tag": "dns-in-v6", "listen": ipv6_listen, "listen_port": 53})
+        add_inbound_tag(config, "dns-in-v6")
     clash = config.setdefault("experimental", {}).setdefault("clash_api", {})
     controller = str(clash.get("external_controller", "")).strip()
     controller_host = controller.rsplit(":", 1)[0] if ":" in controller else controller
@@ -534,6 +537,21 @@ def remove_inbound_tag(config, tag):
                     rule["inbound"] = inbound[0]
             elif inbound == tag:
                 rule.pop("inbound", None)
+
+
+def add_inbound_tag(config, tag):
+    for section in ("dns", "route"):
+        for rule in config.get(section, {}).get("rules", []) or []:
+            if not isinstance(rule, dict):
+                continue
+            inbound = rule.get("inbound")
+            if inbound is None:
+                continue
+            if isinstance(inbound, list):
+                if tag not in inbound:
+                    inbound.append(tag)
+            elif inbound == "dns-in":
+                rule["inbound"] = ["dns-in", tag]
 
 
 def apply_fakeip_settings(config, groups):

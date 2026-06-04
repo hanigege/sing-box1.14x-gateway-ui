@@ -45,6 +45,12 @@
 curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash
 ```
 
+如果当前机器 DNS 被污染，访问 GitHub 出现证书域名不匹配，可先用自己的反代入口下载安装脚本：
+
+```bash
+curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui/main/scripts/quick-install.sh | sudo bash
+```
+
 安装器会交互式询问：
 
 - 是否使用简单模式，默认 yes
@@ -72,6 +78,12 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 
 ```bash
 curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s purge
+```
+
+DNS 污染时同样可换成反代入口：
+
+```bash
+curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui/main/scripts/quick-install.sh | sudo bash -s purge
 ```
 
 ## Git 安装
