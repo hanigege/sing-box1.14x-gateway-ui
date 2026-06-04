@@ -917,10 +917,13 @@ def resolve_server_addresses(server):
         return [str(ipaddress.ip_address(host))], ""
     except ValueError:
         pass
-    addresses, error = resolve_via_sing_box_dns(host)
+    addresses, error = resolve_via_public_dns(host)
     if addresses:
         return addresses, ""
-    return [], error or "sing-box DNS returned no address"
+    addresses, system_error = resolve_via_system_dns(host)
+    if addresses:
+        return addresses, ""
+    return [], error or system_error or "public DNS returned no address"
 
 
 def dns_query_name(host):
@@ -1040,13 +1043,65 @@ def resolve_via_sing_box_dns(host):
     return [], f"sing-box DNS {server}:{port} failed: {'; '.join(errors) or 'no records'}"
 
 
-def resolved_outbound_servers(nodes=None):
+def resolve_via_public_dns(host):
+    addresses = []
+    errors = []
+    for server in ("223.5.5.5", "1.1.1.1", "8.8.8.8"):
+        for qtype in (1, 28):
+            try:
+                for address in query_dns_once(server, 53, host, qtype):
+                    if address not in addresses:
+                        addresses.append(address)
+            except OSError as exc:
+                errors.append(f"{server}: {exc}")
+        if addresses:
+            break
+    return addresses, "; ".join(errors)
+
+
+def resolve_via_system_dns(host):
+    try:
+        records = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        return [], str(exc)
+    addresses = []
+    for record in records:
+        address = record[4][0]
+        if address not in addresses:
+            addresses.append(address)
+    return addresses, ""
+
+
+def filter_fakeip_addresses(addresses, groups=None):
+    fakeip = (groups or load_groups()).get("fakeip", {})
+    ranges = []
+    for value, fallback in ((fakeip.get("inet4_range"), "28.0.0.0/8"), (fakeip.get("inet6_range"), "2001:2::/64")):
+        try:
+            ranges.append(ipaddress.ip_network(value or fallback, strict=False))
+        except ValueError:
+            ranges.append(ipaddress.ip_network(fallback, strict=False))
+    filtered = []
+    for address in addresses:
+        try:
+            parsed = ipaddress.ip_address(str(address))
+        except ValueError:
+            continue
+        if any(parsed in network for network in ranges):
+            continue
+        if str(parsed) not in filtered:
+            filtered.append(str(parsed))
+    return filtered
+
+
+def resolved_outbound_servers(nodes=None, groups=None):
     resolved = []
     seen = set()
+    groups = groups or load_groups()
     for outbound in outbound_sources(nodes):
         tag = outbound.get("tag") or ""
         server = outbound.get("server")
         addresses, error = resolve_server_addresses(server)
+        addresses = filter_fakeip_addresses(addresses, groups)
         if not addresses:
             key = (tag, server, "")
             if key not in seen:
@@ -1118,7 +1173,8 @@ def tproxy_bypass_sets(nodes=None, groups=None):
     for item in current_ipv6_prefixes(iface):
         if item not in bypass6:
             bypass6.append(item)
-    for item in outbound_server_ip_networks(nodes):
+    node_networks = outbound_server_ip_networks(nodes)
+    for item in node_networks:
         target = bypass6 if ":" in item else bypass4
         if item not in target:
             target.append(item)
@@ -1128,8 +1184,8 @@ def tproxy_bypass_sets(nodes=None, groups=None):
         "bypass6": collapse_network_strings(bypass6),
         "fakeip4": fakeip4,
         "fakeip6": fakeip6,
-        "nodeServerIpNetworks": outbound_server_ip_networks(nodes),
-        "nodeServers": resolved_outbound_servers(nodes),
+        "nodeServerIpNetworks": node_networks,
+        "nodeServers": resolved_outbound_servers(nodes, groups),
     }
 
 
