@@ -403,6 +403,7 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     config = load_json(BASE_CONFIG_PATH, {})
     rewrite_custom_rule_paths(config, rule_dir)
     apply_portable_listeners(config)
+    apply_cache_file_settings(config)
     apply_fakeip_settings(config, groups)
     apply_blacklist_dns_reject(config)
     apply_ddns_dns_settings(config, groups)
@@ -428,6 +429,12 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     block = groups.get("block") or {"type": "block", "tag": "block"}
     config["outbounds"] = [proxy, auto, *[node["outbound"] for node in nodes if node.get("enabled", True)], direct, block]
     return config
+
+
+def apply_cache_file_settings(config):
+    cache = config.setdefault("experimental", {}).setdefault("cache_file", {})
+    cache["enabled"] = True
+    cache["store_fakeip"] = True
 
 
 def apply_portable_listeners(config):

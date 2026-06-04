@@ -234,7 +234,7 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
             "final": "Proxy",
         },
         "experimental": {
-            "cache_file": {"enabled": True},
+            "cache_file": {"enabled": True, "store_fakeip": True},
             "clash_api": {
                 "external_controller": f"{lan_ip}:9090",
                 "external_ui": "/etc/sing-box/ui",
