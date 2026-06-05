@@ -37,35 +37,26 @@
 
 ## 透明网关 sysctl
 
-下面是一套可参考的 sing-box 透明网关 sysctl 参数。核心目标是开启 IPv4/IPv6 转发，关闭会影响 TProxy/策略路由的反向路径过滤，并在开启 IPv6 forwarding 后继续接受上游路由器的 RA 默认路由。不同网络环境可以按需手动调整。
+安装器会自动写入透明网关/TProxy 必需的基础 sysctl 参数，用来开启 IPv4/IPv6 转发，关闭入口网卡反向路径过滤，并在开启 IPv6 forwarding 后继续接受上游路由器的 RA 默认路由。
 
-默认参数如下：
+这些参数不是测速优化项，而是透明网关正常工作的基础配置。请不要随意删除 `/etc/sysctl.d/99-sing-box-tproxy.conf`，否则重启后可能导致 LAN 客户端无法正常通过网关转发。
+
+自动生成的参数如下：
 
 ```conf
 net.ipv4.ip_forward=1
 net.ipv4.conf.all.rp_filter=0
 net.ipv4.conf.default.rp_filter=0
 net.ipv4.conf.eth0.rp_filter=0
-net.ipv4.conf.lo.rp_filter=0
 
 net.ipv6.conf.all.forwarding=1
 net.ipv6.conf.default.forwarding=1
 net.ipv6.conf.eth0.forwarding=1
-net.ipv6.conf.all.accept_ra=2
-net.ipv6.conf.default.accept_ra=2
 net.ipv6.conf.eth0.accept_ra=2
-net.ipv6.conf.all.accept_ra_defrtr=1
-net.ipv6.conf.default.accept_ra_defrtr=1
 net.ipv6.conf.eth0.accept_ra_defrtr=1
-net.ipv6.conf.all.autoconf=1
-net.ipv6.conf.default.autoconf=1
-net.ipv6.conf.eth0.autoconf=1
-net.ipv6.conf.all.disable_ipv6=0
-net.ipv6.conf.default.disable_ipv6=0
-net.ipv6.conf.eth0.disable_ipv6=0
 ```
 
-其中 `eth0` 需要替换成实际默认网卡名。
+其中 `eth0` 会按安装机的默认网卡自动生成。
 
 ## 支持系统
 
