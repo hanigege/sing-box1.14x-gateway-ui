@@ -339,14 +339,14 @@ def extract_initial_manager_data(config):
             "interrupt_exist_connections": (proxy or {}).get("interrupt_exist_connections", True),
         },
         "auto": {
-            "url": (auto or {}).get("url", "https://www.gstatic.com/generate_204"),
+            "url": (auto or {}).get("url", "https://cp.cloudflare.com/generate_204"),
             "interval": (auto or {}).get("interval", "2m"),
-            "tolerance": (auto or {}).get("tolerance", 50),
+            "tolerance": (auto or {}).get("tolerance", 150),
         },
         "direct": direct or {"type": "direct", "tag": "direct"},
         "block": block or {"type": "block", "tag": "block"},
         "fakeip": fakeip or {"tag": "fakeip-dns", "inet4_range": "28.0.0.0/8", "inet6_range": "2001:2::/64"},
-        "ddns": {"dns": "local"},
+        "ddns": {"dns": "remote"},
     }
     return base, normalize_nodes(nodes), groups
 
@@ -381,14 +381,14 @@ def load_groups():
     groups.setdefault("ddns", {})
     groups["proxy"].setdefault("default", "Auto")
     groups["proxy"].setdefault("interrupt_exist_connections", True)
-    groups["auto"].setdefault("url", "https://www.gstatic.com/generate_204")
+    groups["auto"].setdefault("url", "https://cp.cloudflare.com/generate_204")
     groups["auto"].setdefault("interval", "2m")
-    groups["auto"].setdefault("tolerance", 50)
+    groups["auto"].setdefault("tolerance", 150)
     groups["fakeip"].setdefault("tag", "fakeip-dns")
     groups["fakeip"].setdefault("inet4_range", "28.0.0.0/8")
     groups["fakeip"].setdefault("inet6_range", "2001:2::/64")
     if groups["ddns"].get("dns") not in ("local", "remote"):
-        groups["ddns"]["dns"] = "local"
+        groups["ddns"]["dns"] = "remote"
     return groups
 
 
@@ -426,9 +426,9 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
         "type": "urltest",
         "tag": "Auto",
         "outbounds": tags,
-        "url": groups.get("auto", {}).get("url", "https://www.gstatic.com/generate_204"),
+        "url": groups.get("auto", {}).get("url", "https://cp.cloudflare.com/generate_204"),
         "interval": groups.get("auto", {}).get("interval", "2m"),
-        "tolerance": groups.get("auto", {}).get("tolerance", 50),
+        "tolerance": groups.get("auto", {}).get("tolerance", 150),
     }
     direct = groups.get("direct") or {"type": "direct", "tag": "direct"}
     block = groups.get("block") or {"type": "block", "tag": "block"}
@@ -656,7 +656,7 @@ def same_inbound(value, tags):
 
 
 def apply_ddns_dns_settings(config, groups):
-    mode = groups.get("ddns", {}).get("dns", "local")
+    mode = groups.get("ddns", {}).get("dns", "remote")
     server = "remote-dns" if mode == "remote" else "local-dns"
     dns_rules = config.setdefault("dns", {}).setdefault("rules", [])
     for rule in dns_rules:
@@ -1532,7 +1532,7 @@ def read_delay_history(tag):
 
 
 def test_node_delay(tag, url=None, timeout_ms=5000):
-    query = urlencode({"timeout": int(timeout_ms), "url": url or load_groups().get("auto", {}).get("url", "https://www.gstatic.com/generate_204")})
+    query = urlencode({"timeout": int(timeout_ms), "url": url or load_groups().get("auto", {}).get("url", "https://cp.cloudflare.com/generate_204")})
     result = clash_api_request(f"/proxies/{quote(tag, safe='')}/delay?{query}", timeout=max(8, int(timeout_ms / 1000) + 3))
     if not result["ok"]:
         return {"tag": tag, "ok": False, "delay": None, "error": result["error"]}
@@ -1578,7 +1578,7 @@ def normalize_payload_groups(raw_groups, nodes=None):
         if isinstance(auto, dict):
             groups["auto"]["url"] = normalize_url(auto.get("url", groups["auto"]["url"]), groups["auto"]["url"])
             groups["auto"]["interval"] = str(auto.get("interval", groups["auto"]["interval"])).strip() or groups["auto"]["interval"]
-            groups["auto"]["tolerance"] = normalize_non_negative_number(auto.get("tolerance", groups["auto"]["tolerance"]), 50)
+            groups["auto"]["tolerance"] = normalize_non_negative_number(auto.get("tolerance", groups["auto"]["tolerance"]), 150)
         fakeip = raw_groups.get("fakeip")
         if isinstance(fakeip, dict):
             groups["fakeip"]["inet4_range"] = normalize_cidr(
@@ -1591,7 +1591,7 @@ def normalize_payload_groups(raw_groups, nodes=None):
             )
         ddns = raw_groups.get("ddns")
         if isinstance(ddns, dict):
-            mode = str(ddns.get("dns", groups["ddns"].get("dns", "local"))).strip()
+            mode = str(ddns.get("dns", groups["ddns"].get("dns", "remote"))).strip()
             if mode not in ("local", "remote"):
                 raise ValueError(f"Invalid DDNS DNS mode: {mode}")
             groups["ddns"]["dns"] = mode

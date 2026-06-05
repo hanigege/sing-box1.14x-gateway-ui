@@ -17,6 +17,105 @@ GROUPS_PATH = MANAGER_DIR / "groups.json"
 INITIAL_NODES_FILE = os.environ.get("SING_BOX_INITIAL_NODES_FILE", "")
 DEFAULT_FAKE4 = "28.0.0.0/8"
 DEFAULT_FAKE6 = "2001:2::/64"
+APPLE_DOMAINS = ["apple.com", "icloud.com", "mzstatic.com", "cdn-apple.com", "apple-dns.net", "aaplimg.com", "apple-cloudkit.com"]
+PROXY_GEOSITE_RULES = [
+    "geosite-ai",
+    "geosite-youtube",
+    "geosite-google",
+    "geosite-telegram",
+    "geosite-github",
+    "geosite-cloudflare",
+    "geosite-netflix",
+    "geosite-facebook",
+    "geosite-instagram",
+    "geosite-tiktok",
+    "geosite-speedtest",
+    "geosite-jetbrains",
+    "geosite-spotify",
+    "geosite-disney",
+    "geosite-hbo",
+    "geosite-amazon",
+    "geosite-adobe",
+    "geosite-steam",
+    "geosite-category-pt@!cn",
+    "geosite-category-cryptocurrency",
+    "geosite-geolocation-!cn",
+]
+PROXY_ROUTE_RULES = [
+    "geosite-youtube",
+    "geosite-google",
+    "geosite-telegram",
+    "geoip-telegram",
+    "geosite-github",
+    "geosite-cloudflare",
+    "geosite-netflix",
+    "geoip-netflix",
+    "geosite-facebook",
+    "geoip-facebook",
+    "geosite-instagram",
+    "geosite-tiktok",
+    "geosite-speedtest",
+    "geosite-jetbrains",
+    "geosite-spotify",
+    "geosite-disney",
+    "geosite-hbo",
+    "geosite-amazon",
+    "geosite-adobe",
+    "geosite-steam",
+    "geosite-category-pt@!cn",
+    "geosite-category-cryptocurrency",
+    "geosite-geolocation-!cn",
+]
+DIRECT_ROUTE_RULES = ["geosite-cn", "geosite-geolocation-cn", "geosite-icloud@cn", "geosite-apple@cn", "geoip-cn"]
+PUBLIC_DNS_CIDRS = [
+    "1.1.1.1/32",
+    "1.0.0.1/32",
+    "8.8.8.8/32",
+    "8.8.4.4/32",
+    "9.9.9.9/32",
+    "149.112.112.112/32",
+    "208.67.222.222/32",
+    "208.67.220.220/32",
+    "2001:4860:4860::8888/128",
+    "2001:4860:4860::8844/128",
+    "2606:4700:4700::1111/128",
+    "2606:4700:4700::1001/128",
+    "2620:fe::9/128",
+    "2620:fe::fe/128",
+    "2620:0:ccc::2/128",
+    "2620:0:ccd::2/128",
+]
+REMOTE_RULE_SETS = [
+    ("geosite-ai", "geosite", "category-ai-chat-!cn"),
+    ("geosite-youtube", "geosite", "youtube"),
+    ("geosite-google", "geosite", "google"),
+    ("geosite-telegram", "geosite", "telegram"),
+    ("geosite-github", "geosite", "github"),
+    ("geosite-cloudflare", "geosite", "cloudflare"),
+    ("geosite-netflix", "geosite", "netflix"),
+    ("geosite-facebook", "geosite", "facebook"),
+    ("geosite-instagram", "geosite", "instagram"),
+    ("geosite-tiktok", "geosite", "tiktok"),
+    ("geosite-speedtest", "geosite", "speedtest"),
+    ("geosite-jetbrains", "geosite", "jetbrains"),
+    ("geosite-spotify", "geosite", "spotify"),
+    ("geosite-disney", "geosite", "disney"),
+    ("geosite-hbo", "geosite", "hbo"),
+    ("geosite-amazon", "geosite", "amazon"),
+    ("geosite-adobe", "geosite", "adobe"),
+    ("geosite-steam", "geosite", "steam"),
+    ("geosite-category-pt@!cn", "geosite", "category-pt@!cn"),
+    ("geosite-category-cryptocurrency", "geosite", "category-cryptocurrency"),
+    ("geosite-geolocation-!cn", "geosite", "geolocation-!cn"),
+    ("geosite-cn", "geosite", "cn"),
+    ("geosite-icloud@cn", "geosite", "icloud@cn"),
+    ("geosite-apple@cn", "geosite", "apple@cn"),
+    ("geosite-geolocation-cn", "geosite", "geolocation-cn"),
+    ("geoip-cn", "geoip", "cn"),
+    ("geoip-telegram", "geoip", "telegram"),
+    ("geoip-netflix", "geoip", "netflix"),
+    ("geoip-facebook", "geoip", "facebook"),
+]
 
 
 def ask(prompt, default=""):
@@ -166,6 +265,10 @@ def local_rule_set(tag, path, format_="source"):
     return {"type": "local", "tag": tag, "format": format_, "path": path}
 
 
+def remote_rule_set(tag, kind, name):
+    return local_rule_set(tag, f"/etc/sing-box/rules/{kind}/{name}.srs", "binary")
+
+
 def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
     dns_inbounds = ["dns-in"]
     inbounds = [
@@ -196,11 +299,12 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
                 {"rule_set": "custom-greylist", "action": "route", "server": "fakeip-dns", "rewrite_ttl": 60, "query_type": ["A", "AAAA"]},
                 {"rule_set": "custom-ddns", "action": "route", "server": "local-dns", "rewrite_ttl": 60},
                 {"inbound": dns_inbounds, "rule_set": "custom-ddns", "action": "route", "server": "local-dns", "rewrite_ttl": 60},
+                {"domain_suffix": APPLE_DOMAINS, "action": "route", "server": "local-dns", "rewrite_ttl": 60},
                 {"inbound": dns_inbounds, "rule_set": ["geosite-cn", "geosite-geolocation-cn", "geosite-icloud@cn", "geosite-apple@cn"], "action": "route", "server": "local-dns", "rewrite_ttl": 60},
-                {"inbound": dns_inbounds, "rule_set": ["geosite-geolocation-!cn"], "action": "route", "server": "fakeip-dns", "rewrite_ttl": 60, "query_type": ["A", "AAAA"]},
+                {"inbound": dns_inbounds, "rule_set": PROXY_GEOSITE_RULES, "action": "route", "server": "fakeip-dns", "rewrite_ttl": 60, "query_type": ["A", "AAAA"]},
                 {"inbound": dns_inbounds, "query_type": ["A", "AAAA"], "action": "route", "server": "fakeip-dns", "rewrite_ttl": 60},
                 {"rule_set": ["geosite-cn", "geosite-geolocation-cn", "geosite-icloud@cn", "geosite-apple@cn"], "action": "route", "server": "local-dns", "rewrite_ttl": 60},
-                {"rule_set": ["geosite-geolocation-!cn"], "action": "route", "server": "remote-dns", "rewrite_ttl": 60},
+                {"rule_set": PROXY_GEOSITE_RULES, "action": "route", "server": "remote-dns", "rewrite_ttl": 60},
             ],
         },
         "inbounds": inbounds,
@@ -209,12 +313,7 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
             "auto_detect_interface": True,
             "default_domain_resolver": "remote-dns",
             "rule_set": [
-                local_rule_set("geosite-geolocation-!cn", "/etc/sing-box/rules/geosite/geolocation-!cn.srs", "binary"),
-                local_rule_set("geosite-cn", "/etc/sing-box/rules/geosite/cn.srs", "binary"),
-                local_rule_set("geosite-geolocation-cn", "/etc/sing-box/rules/geosite/geolocation-cn.srs", "binary"),
-                local_rule_set("geosite-icloud@cn", "/etc/sing-box/rules/geosite/icloud@cn.srs", "binary"),
-                local_rule_set("geosite-apple@cn", "/etc/sing-box/rules/geosite/apple@cn.srs", "binary"),
-                local_rule_set("geoip-cn", "/etc/sing-box/rules/geoip/cn.srs", "binary"),
+                *[remote_rule_set(tag, kind, name) for tag, kind, name in REMOTE_RULE_SETS],
                 local_rule_set("custom-whitelist", "/etc/sing-box/custom-rules/whitelist.json"),
                 local_rule_set("custom-blacklist", "/etc/sing-box/custom-rules/blacklist.json"),
                 local_rule_set("custom-greylist", "/etc/sing-box/custom-rules/greylist.json"),
@@ -229,8 +328,11 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
                 {"rule_set": "custom-greylist", "outbound": "Proxy"},
                 {"ip_cidr": [fake4, fake6], "outbound": "Proxy"},
                 {"ip_is_private": True, "outbound": "direct"},
-                {"rule_set": ["geosite-geolocation-!cn"], "outbound": "Proxy"},
-                {"rule_set": ["geosite-cn", "geosite-geolocation-cn", "geosite-icloud@cn", "geosite-apple@cn", "geoip-cn"], "outbound": "direct"},
+                {"ip_cidr": PUBLIC_DNS_CIDRS, "outbound": "Proxy"},
+                {"rule_set": ["geosite-ai"], "outbound": "Proxy"},
+                {"domain_suffix": APPLE_DOMAINS, "outbound": "direct"},
+                {"rule_set": PROXY_ROUTE_RULES, "outbound": "Proxy"},
+                {"rule_set": DIRECT_ROUTE_RULES, "outbound": "direct"},
             ],
             "final": "Proxy",
         },
@@ -279,11 +381,11 @@ def main():
     default_node = nodes[0]["outbound"]["tag"]
     groups = {
         "proxy": {"default": default_node, "interrupt_exist_connections": True},
-        "auto": {"url": "https://www.gstatic.com/generate_204", "interval": "2m", "tolerance": 50},
+        "auto": {"url": "https://cp.cloudflare.com/generate_204", "interval": "2m", "tolerance": 150},
         "direct": {"type": "direct", "tag": "direct"},
         "block": {"type": "block", "tag": "block"},
         "fakeip": {"tag": "fakeip-dns", "inet4_range": fake4, "inet6_range": fake6},
-        "ddns": {"dns": "local"},
+        "ddns": {"dns": "remote"},
     }
     for name in ("whitelist", "blacklist", "greylist", "ddns"):
         write_json(RULE_DIR / f"{name}.json", empty_rule_set())
