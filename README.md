@@ -113,15 +113,75 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 - UI 管理配置：`/etc/sing-box/manager/`
 - 自定义规则文件：`/etc/sing-box/custom-rules/`
 
-例如网关机器内网 IP 是 `10.20.20.6`，安装完成后 `/etc/resolv.conf` 通常会变成：
+例如网关机器内网 IP 是 `192.168.1.2`，安装完成后 `/etc/resolv.conf` 通常会变成：
 
 ```conf
-nameserver 10.20.20.6
+nameserver 192.168.1.2
 ```
 
 这是旁路网关模式的正常行为：本机和局域网客户端的 DNS 先交给 `sing-box`，再由规则决定直连、代理或 FakeIP。
 
 需要注意：刚安装完成时，如果还没有添加可用的真实代理节点，国外网站和部分需要代理的域名不一定能打开。进入规则 UI 添加正常节点并保存后，代理分流恢复，外网访问通常就会正常。
+
+### IPv6 FakeIP 推荐配置
+
+如果希望浏览器访问国外网站时优先显示和使用 IPv6 FakeIP，不建议长期使用默认示例网段 `2001:2::/64`。部分系统或浏览器会把这种特殊用途前缀排在 IPv4 FakeIP 后面，结果外网域名显示为 `28.x.x.x`。
+
+更稳的做法是：从运营商下发给你的公网 IPv6 前缀里，挑一个没有分配给 LAN 的 `/64` 作为 IPv6 FakeIP。
+
+脱敏示例：
+
+```text
+运营商下发前缀：2001:db8:1234:1000::/62
+LAN 正在使用：  2001:db8:1234:1000::/64
+IPv6 FakeIP 可用：2001:db8:1234:1001::/64
+```
+
+这个 `/62` 通常包含 4 个 `/64`：
+
+```text
+2001:db8:1234:1000::/64  # LAN 已用，不要拿来做 FakeIP
+2001:db8:1234:1001::/64  # 可作为 IPv6 FakeIP
+2001:db8:1234:1002::/64  # 可作为 IPv6 FakeIP
+2001:db8:1234:1003::/64  # 可作为 IPv6 FakeIP
+```
+
+在规则 UI 的节点页里，把 FakeIP IPv6 网段改成未使用的那个 `/64`，例如：
+
+```text
+2001:db8:1234:1001::/64
+```
+
+同时，前端软路由必须把这个 IPv6 FakeIP `/64` 指回 sing-box 网关，否则客户端拿到 IPv6 FakeIP 后不会回到 `sing-box`。
+
+RouterOS 示例，假设：
+
+```text
+sing-box 网关 ULA：fd00::2
+IPv6 FakeIP 网段：2001:db8:1234:1001::/64
+路由表名称：sing-box-v6
+```
+
+需要有一张指向 sing-box 网关的 IPv6 路由表：
+
+```routeros
+/ipv6/route/add dst-address=::/0 gateway=fd00::2 routing-table=sing-box-v6
+```
+
+再把 IPv6 FakeIP 网段送进这张表：
+
+```routeros
+/routing/rule/add dst-address=2001:db8:1234:1001::/64 action=lookup table=sing-box-v6
+```
+
+配置正确后，国外域名的解析结果通常会是：
+
+```text
+A    -> 28.x.x.x
+AAAA -> 2001:db8:1234:1001::xxxx
+```
+
+国内域名则仍应返回真实国内 IPv4/IPv6 地址。这样既能保留 FakeIP 分流，又能让支持 IPv6 的客户端优先走 IPv6 FakeIP。
 
 如需在线下载上游最新版：
 
