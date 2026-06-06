@@ -120,13 +120,21 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 - TProxy 脚本：`/usr/local/sbin/sing-box-tproxy-setup`
 - TProxy sysctl：`/etc/sysctl.d/99-sing-box-tproxy.conf`
 
-如果代理节点已经配置并跑通，且你希望某台客户端或前端软路由把 DNS 交给 `sing-box` 分流，可以手动把那台设备的 DNS 指向 sing-box 机器的内网 IPv4，例如：
+代理节点添加后，sing-box 机器本机的 DNS 不必须指向自己。更稳的做法通常是让宿主机继续使用原来的上游 DNS，例如 Cloud-Init、前端软路由、内网 DNS 或运营商 DNS；这样 sing-box 自己解析代理节点域名时不会形成自我依赖。
+
+真正需要交给 sing-box 的，是希望被规则分流管理的客户端 DNS。只有客户端 DNS 请求最终进入 sing-box，白名单、黑名单、灰名单、FakeIP 和域名分流规则才会完整生效。实现方式可以是：
+
+- 在客户端手动把 DNS 指向 sing-box 机器的内网 IPv4
+- 在前端软路由上把客户端 DNS 转发到 sing-box
+- 在前端软路由上劫持客户端 53 端口 DNS 到 sing-box
+
+例如 sing-box 机器内网 IP 是 `192.168.1.2`，客户端或软路由可以按需配置：
 
 ```conf
 nameserver 192.168.1.2
 ```
 
-这一步不是安装必需项。没有配置真实代理节点前，把客户端 DNS 指向 sing-box 可能导致国外网站或部分需要代理的域名打不开；添加正常节点并保存后，代理分流才会完整工作。
+这一步不是安装必需项，也不是 sing-box 本机稳定提供代理服务的必需项。如果只是把 sing-box 服务和 UI 安装起来，不需要改 DNS；如果要让局域网客户端按域名规则和 FakeIP 分流，则客户端 DNS 必须最终进入 sing-box。没有配置真实代理节点前，不建议把客户端 DNS 指向 sing-box，否则国外网站或部分需要代理的域名可能解析成 FakeIP 但代理不可用，表现为网页打不开。
 
 如果你确实需要让本机广播 IPv6 默认网关，可以自行安装 `radvd`，并在运行 UI 或同步脚本时显式设置：
 

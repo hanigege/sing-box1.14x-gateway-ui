@@ -327,7 +327,7 @@ ensure_dns_port_available() {
     *)
       echo "Port 53 is already in use by: $owner" >&2
       echo "Please stop that DNS service first, or free port 53 before installing." >&2
-      echo "The installer will not modify system DNS or systemd-resolved automatically." >&2
+      echo "The installer will not modify /etc/resolv.conf or replace your DNS upstreams automatically." >&2
       exit 1
       ;;
   esac
