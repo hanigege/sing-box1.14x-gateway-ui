@@ -100,6 +100,29 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 
 安装过程中会先下载必需分流规则、生成 TProxy 规则脚本，并执行 `sing-box check`。检查不通过时不会启用服务。
 
+### 安装后的 DNS 变化
+
+安装成功后，安装器会把网关机器本机的 DNS 改成它自己的 LAN IPv4 地址，也就是安装时填写或自动检测到的旁路网关内网 IP。
+
+相关文件和备份位置：
+
+- 当前系统 DNS 文件：`/etc/resolv.conf`
+- 安装前的 DNS 备份：`/etc/sing-box/manager/resolv.conf.before-sing-box`
+- 如使用 `systemd-resolved`，安装前的 resolved 配置备份：`/etc/sing-box/manager/resolved.conf.before-sing-box`
+- sing-box 主配置：`/etc/sing-box/config.json`
+- UI 管理配置：`/etc/sing-box/manager/`
+- 自定义规则文件：`/etc/sing-box/custom-rules/`
+
+例如网关机器内网 IP 是 `10.20.20.6`，安装完成后 `/etc/resolv.conf` 通常会变成：
+
+```conf
+nameserver 10.20.20.6
+```
+
+这是旁路网关模式的正常行为：本机和局域网客户端的 DNS 先交给 `sing-box`，再由规则决定直连、代理或 FakeIP。
+
+需要注意：刚安装完成时，如果还没有添加可用的真实代理节点，国外网站和部分需要代理的域名不一定能打开。进入规则 UI 添加正常节点并保存后，代理分流恢复，外网访问通常就会正常。
+
 如需在线下载上游最新版：
 
 ```bash
