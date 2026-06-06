@@ -28,6 +28,7 @@ const translations = {
     saving: "Saving",
     savingWithCheck: "Checking staged rules. If it passes, rules will be saved and sing-box will restart.",
     savedAndRestarted: "Check passed. Rules saved and sing-box restarted.",
+    savedAlert: "Saved successfully. sing-box and TProxy are ready.",
     restarting: "Checking before restart",
     restarted: "Config check passed and sing-box restarted",
     checkFailed: "Config check failed. Nothing was restarted.",
@@ -211,6 +212,7 @@ const translations = {
     saving: "正在保存",
     savingWithCheck: "正在检测临时规则；通过后才会保存并重启 sing-box",
     savedAndRestarted: "检测通过，规则已保存，sing-box 已重启",
+    savedAlert: "保存成功，sing-box 和 TProxy 已就绪。",
     restarting: "重启前检测中",
     restarted: "检测通过，sing-box 已重启",
     checkFailed: "配置检测失败，没有执行重启",
@@ -1487,6 +1489,7 @@ async function save() {
       setStatus(`${t("savedAndRestarted")}；${t("tproxySyncFailed")}`, "bad");
     } else {
       setStatus(`${t("savedAndRestarted")}；${t("delayUpdated")}`, "ok");
+      window.alert(t("savedAlert"));
     }
   } catch (error) {
     setStatus(error.message || t("changesBlocked"), "bad");
