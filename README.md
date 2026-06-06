@@ -30,7 +30,7 @@
 - 节点服务器 IP 自动加入 TProxy bypass，避免代理链路被透明代理套住
 - FakeIP 网段不绕过 TProxy，继续交给 `sing-box` 分流
 - LAN 侧 TCP/UDP 53 会被重定向到 sing-box DNS，降低 IPv4/IPv6 明文 DNS 泄漏
-- 安装器默认不把系统 DNS 指向本机、不广播 IPv6 网关，适合前端软路由或 Cloud-Init 自行管理网络
+- 安装器默认不把系统 DNS 指向本机、不广播 IPv6 网关，并会停止、mask 已存在但未显式启用的 `radvd`
 - 分流规则定时更新，下载失败保留旧文件
 - 维护页展示规则更新、TProxy、服务状态和节点服务器解析结果
 - 内置 9090 Clash API 和 zashboard 静态面板
@@ -42,7 +42,7 @@
 
 这些参数不是测速优化项，而是透明网关正常工作的基础配置。请不要随意删除 `/etc/sysctl.d/99-sing-box-tproxy.conf`，否则重启后可能导致 LAN 客户端无法正常通过网关转发。
 
-安装器不会启用 `radvd`，也不会把这台机器广播成 LAN 默认 IPv6 网关。家庭或生产网络里通常已经有前端软路由负责默认网关和 RA；如果多台机器同时广播默认 IPv6 网关，客户端可能选错出口，表现为网页打不开、IPv6/IPv4 选择异常或测速结果混乱。
+安装器不会默认启用 `radvd`，也不会把这台机器广播成 LAN 默认 IPv6 网关。如果目标机之前已经安装并启用了 `radvd`，安装器会在未显式 opt-in 时执行 `systemctl disable --now radvd.service` 和 `systemctl mask radvd.service`，防止旁路机误发 RA。家庭或生产网络里通常已经有前端软路由负责默认网关和 RA；如果多台机器同时广播默认 IPv6 网关，客户端可能选错出口，表现为网页打不开、IPv6/IPv4 选择异常或测速结果混乱。
 
 自动生成的参数如下：
 
@@ -135,11 +135,13 @@ nameserver 192.168.1.2
 
 这一步不是安装必需项，也不是 sing-box 本机稳定提供代理服务的必需项。如果只是把 sing-box 服务和 UI 安装起来，不需要改 DNS；如果要让局域网客户端按域名规则和 FakeIP 分流，则客户端 DNS 必须最终进入 sing-box。没有配置真实代理节点前，不建议把客户端 DNS 指向 sing-box，否则国外网站或部分需要代理的域名可能解析成 FakeIP 但代理不可用，表现为网页打不开。
 
-如果你确实需要让本机广播 IPv6 默认网关，可以自行安装 `radvd`，并在运行 UI 或同步脚本时显式设置：
+如果你确实需要让本机广播 IPv6 默认网关，可以自行安装 `radvd`，并在运行安装器、UI 或同步脚本时显式设置：
 
 ```bash
 SING_BOX_GATEWAY_ENABLE_RADVD=1 python3 /usr/local/sbin/refresh-sing-box-runtime-config
 ```
+
+显式开启后，同步逻辑会解除 `radvd.service` 的 mask，写入 `/etc/radvd.conf`，并执行 `systemctl enable --now radvd.service`。不设置该环境变量时，即使系统里已经存在 `radvd`，一键安装也会保持它关闭。
 
 生产网络里不建议在多台旁路机上同时启用 RA 广播。一般更稳的做法是：前端软路由继续作为默认网关，只把 FakeIP 网段或指定流量路由到 sing-box 机器。
 
@@ -211,19 +213,23 @@ SING_BOX_ARCH=arm64 sudo bash scripts/install.sh
 
 ## 一键卸载
 
-默认卸载会停止服务、移除 UI、systemd 单元、TProxy 运行规则和辅助脚本，但保留 `/etc/sing-box` 配置和 `/usr/local/bin/sing-box`，方便以后恢复：
+默认卸载会尽量恢复到安装前状态：停止并禁用本项目服务，清理 TProxy nft/routing 运行规则，按安装前记录恢复 `radvd` 状态，并删除本项目安装的 UI、systemd 单元、辅助脚本、运行配置、规则缓存、zashboard 文件和 `/etc/sing-box`。如果 `/usr/local/bin/sing-box` 或 apt 依赖包是本安装器新增的，也会一起删除；如果安装前已经存在，则默认保留，避免误删用户原有程序或系统基础包。
+
+卸载脚本不会处理 `systemd-resolved` 的 53 端口设置。安装时如果为了释放 53 写入了 `DNSStubListener=no`，卸载时会保持这个保护状态，不改回 `yes`，也不重启 `systemd-resolved`。
+
+新版本安装器会在 `/etc/sing-box/manager/install-state` 记录安装前状态，用于卸载时判断哪些文件和依赖可以安全删除。老版本安装没有这份记录时，卸载仍会清理本项目路径和服务，但不会猜测删除安装前状态不明的系统组件。
 
 ```bash
 curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui/main/scripts/quick-install.sh | sudo bash -s uninstall
 ```
 
-彻底删除配置、规则缓存和 sing-box 二进制：
+如果没有安装状态记录，但你仍然确认要删除 `/usr/local/bin/sing-box`，可以使用 purge：
 
 ```bash
 curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui/main/scripts/quick-install.sh | sudo bash -s purge
 ```
 
-直连 GitHub 稳定时也可以使用官方入口：
+直连 GitHub 稳定时也可以使用官方 purge 入口：
 
 ```bash
 curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s purge

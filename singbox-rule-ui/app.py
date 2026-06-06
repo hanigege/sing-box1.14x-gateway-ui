@@ -1432,6 +1432,10 @@ def sync_radvd(interface):
     conf = render_radvd_conf(interface)
     if not conf:
         return {"code": 0, "skipped": True, "reason": "no global IPv6 prefix"}
+    # 只有用户显式开启 RA 广播时才会走到这里；解除 mask 是为了避免默认安装的保护挡住手动 opt-in。
+    unmask = run_command(["systemctl", "unmask", RADVD_SERVICE], timeout=20)
+    if unmask["code"] != 0:
+        return {"code": 1, "stdout": unmask["stdout"], "stderr": unmask["stderr"]}
     with tempfile.TemporaryDirectory(prefix="radvd-sync-") as temp_name:
         conf_path = Path(temp_name) / "radvd.conf"
         conf_path.write_text(conf, encoding="utf-8")
@@ -1441,7 +1445,7 @@ def sync_radvd(interface):
         if RADVD_CONF.exists():
             shutil.copy2(RADVD_CONF, RADVD_CONF.with_name(f"{RADVD_CONF.name}.bak.{now_stamp()}"))
         shutil.copy2(conf_path, RADVD_CONF)
-    restart = run_command(["systemctl", "restart", RADVD_SERVICE], timeout=20)
+    restart = run_command(["systemctl", "enable", "--now", RADVD_SERVICE], timeout=20)
     status = unit_status(RADVD_SERVICE)
     code = 0 if restart["code"] == 0 and status == "active" else 1
     return {"code": code, "stdout": restart["stdout"], "stderr": restart["stderr"], "service": status}

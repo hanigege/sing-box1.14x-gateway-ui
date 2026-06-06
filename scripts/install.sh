@@ -9,6 +9,9 @@ CONFIG_DIR="/etc/sing-box"
 MANAGER_DIR="$CONFIG_DIR/manager"
 RULE_DIR="$CONFIG_DIR/custom-rules"
 CLASH_UI_DIR="$CONFIG_DIR/ui"
+INSTALL_STATE_FILE="$MANAGER_DIR/install-state"
+RADVD_STATE_FILE="$MANAGER_DIR/radvd-state.before-sing-box"
+APT_PACKAGES=(curl ca-certificates tar gzip unzip python3 nftables iproute2 rsync util-linux)
 PROXY_PREFIX="${SING_BOX_GATEWAY_PROXY_PREFIX:-https://scg.jgaga.tk/}"
 PROXY_PREFIXES="${SING_BOX_GATEWAY_PROXY_PREFIXES:-${PROXY_PREFIX},https://gh-proxy.com/,https://gh.llkk.cc/}"
 
@@ -19,13 +22,79 @@ need_root() {
   fi
 }
 
+state_get() {
+  local key="$1"
+  [ -r "$INSTALL_STATE_FILE" ] || return 0
+  awk -F= -v key="$key" '$1 == key { value = substr($0, length(key) + 2) } END { print value }' "$INSTALL_STATE_FILE"
+}
+
+state_set() {
+  local key="$1" value="$2" tmp
+  mkdir -p "$MANAGER_DIR"
+  tmp="$(mktemp)"
+  if [ -r "$INSTALL_STATE_FILE" ]; then
+    awk -F= -v key="$key" '$1 != key { print }' "$INSTALL_STATE_FILE" > "$tmp"
+  fi
+  printf "%s=%s\n" "$key" "$value" >> "$tmp"
+  install -m 0600 "$tmp" "$INSTALL_STATE_FILE"
+  rm -f "$tmp"
+}
+
+record_preinstall_state() {
+  mkdir -p "$MANAGER_DIR"
+  if [ "$(state_get state_version)" != "1" ]; then
+    : > "$INSTALL_STATE_FILE"
+    chmod 0600 "$INSTALL_STATE_FILE"
+    state_set state_version 1
+    if [ -e /usr/local/bin/sing-box ]; then
+      state_set sing_box_binary preexisting
+    else
+      state_set sing_box_binary absent
+    fi
+    for package in "${APT_PACKAGES[@]}"; do
+      if dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
+        state_set "apt_${package}" preexisting
+      else
+        state_set "apt_${package}" absent
+      fi
+    done
+    # 记录安装前 53 端口归属，卸载时只恢复原本就打开的 stub listener。
+    state_set port53_owners "$(port53_owners 2>/dev/null || true)"
+  fi
+}
+
 install_packages() {
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update
-    apt-get install -y curl ca-certificates tar gzip unzip python3 nftables iproute2 rsync util-linux
+    apt-get install -y "${APT_PACKAGES[@]}"
   else
     echo "Only apt-based systems are supported by this MVP installer." >&2
     exit 1
+  fi
+}
+
+enable_radvd_requested() {
+  case "${SING_BOX_GATEWAY_ENABLE_RADVD:-${RULE_UI_ENABLE_RADVD:-0}}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+disable_unrequested_radvd() {
+  if enable_radvd_requested; then
+    return
+  fi
+  if systemctl list-unit-files radvd.service >/dev/null 2>&1; then
+    if [ ! -e "$RADVD_STATE_FILE" ]; then
+      {
+        printf "enabled=%s\n" "$(systemctl is-enabled radvd.service 2>/dev/null || true)"
+        printf "active=%s\n" "$(systemctl is-active radvd.service 2>/dev/null || true)"
+      } > "$RADVD_STATE_FILE"
+    fi
+    # 默认不允许旁路机广播 IPv6 默认网关，避免客户端选错 RA 出口。
+    systemctl disable --now radvd.service >/dev/null 2>&1 || true
+    systemctl mask radvd.service >/dev/null 2>&1 || true
+    echo "IPv6 router advertisement is disabled by default; radvd.service was stopped and masked."
   fi
 }
 
@@ -143,6 +212,7 @@ install_sing_box() {
   echo "Installing bundled sing-box ${SING_BOX_BUNDLED_VERSION} (${arch})"
   tar -xzf "$archive" -C "$tmp"
   install -m 0755 "$tmp"/sing-box-*/sing-box /usr/local/bin/sing-box
+  state_set sing_box_binary installed
 }
 
 install_files() {
@@ -157,6 +227,8 @@ install_files() {
   install -m 0644 "$PROJECT_DIR/systemd/update-sing-box-rules-jsdelivr.timer" /etc/systemd/system/update-sing-box-rules-jsdelivr.timer
   install -m 0644 "$PROJECT_DIR/systemd/sing-box.service" /etc/systemd/system/sing-box.service
   install -m 0644 "$PROJECT_DIR/systemd/sing-box-tproxy.service" /etc/systemd/system/sing-box-tproxy.service
+  # 清理旧版 helper；旧脚本会无条件写入 radvd.conf 并启动 RA 广播。
+  rm -f /usr/local/sbin/refresh-sing-box-tproxy-setup
 }
 
 install_clash_ui() {
@@ -367,6 +439,7 @@ main() {
       ;;
   esac
   need_root
+  record_preinstall_state
   choose_sing_box_runtime
   install_packages
   install_files
@@ -374,6 +447,7 @@ main() {
   install_sing_box
   install_clash_ui
   install_initial_rules
+  disable_unrequested_radvd
   install_tproxy_setup
   ensure_dns_port_available
   /usr/local/bin/sing-box check -c /etc/sing-box/config.json
