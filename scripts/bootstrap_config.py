@@ -232,7 +232,7 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
                 {"rule_set": ["geosite-geolocation-!cn"], "outbound": "Proxy"},
                 {"rule_set": ["geosite-cn", "geosite-geolocation-cn", "geosite-icloud@cn", "geosite-apple@cn", "geoip-cn"], "outbound": "direct"},
             ],
-            "final": "Proxy",
+            "final": "direct",
         },
         "experimental": {
             "cache_file": {"enabled": True, "store_fakeip": True},

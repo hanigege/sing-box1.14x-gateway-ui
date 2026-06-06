@@ -419,6 +419,7 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     apply_greylist_dns_fakeip(config)
     apply_inbound_dns_fakeip_fallback(config)
     apply_ddns_dns_settings(config, groups)
+    apply_route_final_policy(config)
     proxy_default = groups.get("proxy", {}).get("default", "Auto")
     if proxy_default not in {"Auto", *tags}:
         proxy_default = "Auto"
@@ -441,6 +442,10 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     block = groups.get("block") or {"type": "block", "tag": "block"}
     config["outbounds"] = [proxy, auto, *[node["outbound"] for node in nodes if node.get("enabled", True)], direct, block]
     return config
+
+
+def apply_route_final_policy(config):
+    config.setdefault("route", {})["final"] = "direct"
 
 
 def apply_cache_file_settings(config):
