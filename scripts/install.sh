@@ -24,7 +24,7 @@ need_root() {
 install_packages() {
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update
-    apt-get install -y curl ca-certificates tar gzip unzip python3 nftables iproute2 rsync util-linux radvd
+    apt-get install -y curl ca-certificates tar gzip unzip python3 nftables iproute2 rsync util-linux
   else
     echo "Only apt-based systems are supported by this MVP installer." >&2
     exit 1
@@ -227,88 +227,65 @@ install_initial_rules() {
   RULE_UPDATE_RESTART=0 /usr/local/sbin/update-sing-box-rules-jsdelivr
 }
 
-write_fallback_resolver() {
-  nameservers="$(collect_host_nameservers)"
-  rm -f /etc/resolv.conf
-  {
-    if [ -n "$nameservers" ]; then
-      printf "%s\n" "$nameservers"
-    else
-      echo "nameserver 223.5.5.5"
-      echo "nameserver 1.1.1.1"
-    fi
-    echo "options timeout:2 attempts:2"
-  } > /etc/resolv.conf
+port53_conflicts() {
+  python3 - <<'PY'
+import ipaddress
+import json
+import re
+import subprocess
+from pathlib import Path
+
+config = json.loads(Path("/etc/sing-box/config.json").read_text(encoding="utf-8"))
+targets = set()
+for inbound in config.get("inbounds", []) or []:
+    if isinstance(inbound, dict) and inbound.get("listen_port") == 53:
+        listen = str(inbound.get("listen") or "").strip()
+        if listen:
+            targets.add(listen)
+
+if not targets:
+    raise SystemExit(0)
+
+def normalize(address):
+    address = address.strip("[]")
+    if "%" in address:
+        address = address.split("%", 1)[0]
+    try:
+        return str(ipaddress.ip_address(address))
+    except ValueError:
+        return address
+
+targets = {normalize(item) for item in targets}
+wildcards = {"0.0.0.0", "::", "*"}
+conflicts = set()
+for command in (["ss", "-H", "-lunp", "sport = :53"], ["ss", "-H", "-ltnp", "sport = :53"]):
+    result = subprocess.run(command, text=True, capture_output=True)
+    for line in result.stdout.splitlines():
+        owner_match = re.search(r'users:\(\("([^"]+)"', line)
+        owner = owner_match.group(1) if owner_match else "unknown"
+        if owner == "sing-box":
+            continue
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        local = parts[4]
+        if local.startswith("["):
+            address = local.rsplit("]:", 1)[0].lstrip("[")
+        else:
+            address = local.rsplit(":", 1)[0]
+        address = normalize(address)
+        if address in wildcards or address in targets:
+            conflicts.add(owner)
+
+if conflicts:
+    print(",".join(sorted(conflicts)))
+PY
 }
 
-resolver_has_external_nameserver() {
-  awk '
-    /^nameserver[[:space:]]+/ &&
-    $2 !~ /^127\./ &&
-    $2 != "::1" &&
-    $2 != "0.0.0.0" &&
-    $2 != "::" { found=1 }
-    END { exit found ? 0 : 1 }
-  ' /etc/resolv.conf 2>/dev/null
-}
-
-ensure_bootstrap_resolver() {
-  if resolver_has_external_nameserver; then
-    return
-  fi
-  echo "No usable external DNS resolver found in /etc/resolv.conf; writing host upstream resolvers for bootstrap."
-  write_fallback_resolver
-}
-
-port53_owner() {
+port53_owners() {
   ss -H -ltnup 'sport = :53' 2>/dev/null | awk '
     match($0, /users:\(\("([^"]+)"/, m) { print m[1] }
   ' | sort -u | paste -sd, -
-}
-
-ensure_dns_port_available() {
-  owner="$(port53_owner)"
-  if [ -z "$owner" ]; then
-    return
-  fi
-  case "$owner" in
-    *systemd-resolve*|*systemd-resolved*)
-      disable_systemd_resolved_stub
-      ;;
-    *sing-box*)
-      return
-      ;;
-    *)
-      echo "Port 53 is already in use by: $owner" >&2
-      echo "Please stop that DNS service first, or free port 53 before installing." >&2
-      exit 1
-      ;;
-  esac
-}
-
-install_tproxy_setup() {
-  python3 "$PROJECT_DIR/scripts/sync_tproxy_setup.py"
-}
-
-collect_host_nameservers() {
-  {
-    if [ -r /run/systemd/resolve/resolv.conf ]; then
-      awk '/^nameserver[[:space:]]+/ {print $2}' /run/systemd/resolve/resolv.conf
-    fi
-    if [ -r /etc/resolv.conf ]; then
-      awk '/^nameserver[[:space:]]+/ {print $2}' /etc/resolv.conf
-    fi
-    if command -v resolvectl >/dev/null 2>&1; then
-      resolvectl dns 2>/dev/null | tr ' ' '\n'
-    fi
-  } | awk '
-    /^[0-9a-fA-F:.]+$/ &&
-    $0 !~ /^127\./ &&
-    $0 != "::1" &&
-    $0 != "0.0.0.0" &&
-    $0 != "::" &&
-    !seen[$0]++ { print "nameserver " $0 }
-  '
 }
 
 disable_systemd_resolved_stub() {
@@ -322,7 +299,6 @@ disable_systemd_resolved_stub() {
   if [ -e /etc/resolv.conf ] && [ ! -e "$MANAGER_DIR/resolv.conf.before-sing-box" ]; then
     cp -a /etc/resolv.conf "$MANAGER_DIR/resolv.conf.before-sing-box" || true
   fi
-  nameservers="$(collect_host_nameservers)"
   touch /etc/systemd/resolved.conf
   if grep -qE '^[#[:space:]]*DNSStubListener=' /etc/systemd/resolved.conf; then
     sed -i 's/^[#[:space:]]*DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
@@ -330,23 +306,38 @@ disable_systemd_resolved_stub() {
     printf '\nDNSStubListener=no\n' >> /etc/systemd/resolved.conf
   fi
   systemctl reload-or-restart systemd-resolved.service >/dev/null 2>&1 || true
-  if [ -L /etc/resolv.conf ] || ! awk '
-    /^nameserver[[:space:]]+/ &&
-    $2 !~ /^127\./ &&
-    $2 != "::1" { found=1 }
-    END { exit found ? 0 : 1 }
-  ' /etc/resolv.conf 2>/dev/null; then
-    rm -f /etc/resolv.conf
-    {
-      if [ -n "$nameservers" ]; then
-        printf "%s\n" "$nameservers"
-      else
-        echo "nameserver 223.5.5.5"
-        echo "nameserver 1.1.1.1"
-      fi
-      echo "options timeout:2 attempts:2"
-    } > /etc/resolv.conf
+  if [ -L /etc/resolv.conf ] && [ "$(readlink /etc/resolv.conf)" = "/run/systemd/resolve/stub-resolv.conf" ] && [ -e /run/systemd/resolve/resolv.conf ]; then
+    ln -sfn /run/systemd/resolve/resolv.conf /etc/resolv.conf
   fi
+  echo "systemd-resolved DNS stub disabled; port 53 is reserved for sing-box."
+}
+
+ensure_dns_port_available() {
+  all_owners="$(port53_owners)"
+  case "$all_owners" in
+    *systemd-resolve*|*systemd-resolved*)
+      disable_systemd_resolved_stub
+      ;;
+  esac
+  owner="$(port53_conflicts)"
+  if [ -z "$owner" ]; then
+    return
+  fi
+  case "$owner" in
+    *sing-box*)
+      return
+      ;;
+    *)
+      echo "Port 53 is already in use by: $owner" >&2
+      echo "Please stop that DNS service first, or free port 53 before installing." >&2
+      echo "The installer will not modify system DNS or systemd-resolved automatically." >&2
+      exit 1
+      ;;
+  esac
+}
+
+install_tproxy_setup() {
+  python3 "$PROJECT_DIR/scripts/sync_tproxy_setup.py"
 }
 
 enable_services() {
@@ -360,30 +351,6 @@ enable_services() {
 refresh_tproxy_after_start() {
   python3 "$PROJECT_DIR/scripts/sync_tproxy_setup.py"
   systemctl restart sing-box-tproxy.service
-}
-
-set_self_resolver_after_start() {
-  lan_ip="$(python3 - <<'PY'
-import json
-from pathlib import Path
-
-config = json.loads(Path("/etc/sing-box/config.json").read_text(encoding="utf-8"))
-for inbound in config.get("inbounds", []):
-    if inbound.get("tag") == "dns-in" and inbound.get("listen"):
-        print(inbound["listen"])
-        break
-PY
-)"
-  if [ -z "$lan_ip" ] || [ "$lan_ip" = "0.0.0.0" ]; then
-    echo "WARN: unable to determine LAN DNS listen address; keeping current /etc/resolv.conf" >&2
-    return
-  fi
-  rm -f /etc/resolv.conf
-  {
-    echo "nameserver $lan_ip"
-    echo "options timeout:2 attempts:2"
-  } > /etc/resolv.conf
-  echo "Host resolver now points to this gateway: $lan_ip"
 }
 
 main() {
@@ -403,7 +370,6 @@ main() {
   esac
   need_root
   choose_sing_box_runtime
-  ensure_bootstrap_resolver
   install_packages
   install_files
   bootstrap_config
@@ -415,9 +381,9 @@ main() {
   /usr/local/bin/sing-box check -c /etc/sing-box/config.json
   enable_services
   refresh_tproxy_after_start
-  set_self_resolver_after_start
   echo
   echo "Installed."
+  echo "Host DNS was not changed. Configure client/router DNS manually if needed."
   sing-box-gateway-info
 }
 

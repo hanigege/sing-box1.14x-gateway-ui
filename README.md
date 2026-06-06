@@ -1,6 +1,6 @@
 # sing-box-gateway-ui
 
-`sing-box-gateway-ui` 是一个面向旁路网关场景的一键安装项目，集成 `sing-box`、TProxy、分流规则自动更新、规则管理 UI 和 9090 Clash API 面板。
+`sing-box-gateway-ui` 是一个面向旁路代理/旁路网关场景的一键安装项目，集成 `sing-box`、TProxy、分流规则自动更新、规则管理 UI 和 9090 Clash API 面板。
 
 设计目标是：**高效、简洁、sing-box 不死**。所有配置保存、规则更新和 TProxy 同步都应先检查、可回滚，避免因为错误输入导致正在运行的 `sing-box` 无法启动。
 
@@ -30,6 +30,7 @@
 - 节点服务器 IP 自动加入 TProxy bypass，避免代理链路被透明代理套住
 - FakeIP 网段不绕过 TProxy，继续交给 `sing-box` 分流
 - LAN 侧 TCP/UDP 53 会被重定向到 sing-box DNS，降低 IPv4/IPv6 明文 DNS 泄漏
+- 安装器默认不把系统 DNS 指向本机、不广播 IPv6 网关，适合前端软路由或 Cloud-Init 自行管理网络
 - 分流规则定时更新，下载失败保留旧文件
 - 维护页展示规则更新、TProxy、服务状态和节点服务器解析结果
 - 内置 9090 Clash API 和 zashboard 静态面板
@@ -40,6 +41,8 @@
 安装器会自动写入透明网关/TProxy 必需的基础 sysctl 参数，用来开启 IPv4/IPv6 转发，关闭入口网卡反向路径过滤，并在开启 IPv6 forwarding 后继续接受上游路由器的 RA 默认路由。
 
 这些参数不是测速优化项，而是透明网关正常工作的基础配置。请不要随意删除 `/etc/sysctl.d/99-sing-box-tproxy.conf`，否则重启后可能导致 LAN 客户端无法正常通过网关转发。
+
+安装器不会启用 `radvd`，也不会把这台机器广播成 LAN 默认 IPv6 网关。家庭或生产网络里通常已经有前端软路由负责默认网关和 RA；如果多台机器同时广播默认 IPv6 网关，客户端可能选错出口，表现为网页打不开、IPv6/IPv4 选择异常或测速结果混乱。
 
 自动生成的参数如下：
 
@@ -88,7 +91,7 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 - sing-box 来源，默认 `bundled`
 - CPU 架构，默认 `auto`，也可以手动选 `amd64` 或 `arm64`
 - 是否使用简单模式，默认 yes
-- 旁路网关的 LAN IPv4 地址
+- sing-box 机器的 LAN IPv4 地址
 
 简单模式会使用默认 FakeIP 网段和两个脱敏模板节点，让 `sing-box` 与 UI 先跑起来。模板节点不能直接代理流量，进入规则 UI 后，把 `TEMPLATE-HY2` 或 `TEMPLATE-VLESS` 改成自己的真实节点即可。
 
@@ -100,28 +103,38 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 
 安装过程中会先下载必需分流规则、生成 TProxy 规则脚本，并执行 `sing-box check`。检查不通过时不会启用服务。
 
-### 安装后的 DNS 变化
+### 安装后的 DNS 和网关
 
-安装成功后，安装器会把网关机器本机的 DNS 改成它自己的 LAN IPv4 地址，也就是安装时填写或自动检测到的旁路网关内网 IP。
+安装器默认不把宿主机 DNS 指向 sing-box 本机 IP，不写入公共 DNS，也不启用 `radvd` 广播默认 IPv6 网关。PVE 虚拟机、Cloud-Init、前端软路由、RouterOS、OpenWrt 等环境可以继续按原来的方式管理 DNS 和网关。
 
-相关文件和备份位置：
+如果 53 端口被 `systemd-resolved` 的本地 stub 占用，安装器会关闭 `DNSStubListener`，把 53 端口留给 sing-box。这个动作不会把 DNS 改成公共 DNS，也不会改成 sing-box 本机 IP；如果 `/etc/resolv.conf` 原本指向 `/run/systemd/resolve/stub-resolv.conf`，安装器会把它切到 `/run/systemd/resolve/resolv.conf`，继续使用系统已有的上游 DNS。
 
-- 当前系统 DNS 文件：`/etc/resolv.conf`
-- 安装前的 DNS 备份：`/etc/sing-box/manager/resolv.conf.before-sing-box`
-- 如使用 `systemd-resolved`，安装前的 resolved 配置备份：`/etc/sing-box/manager/resolved.conf.before-sing-box`
+相关配置位置：
+
+- 当前系统 DNS 文件：`/etc/resolv.conf`，安装器不会写入公共 DNS 或 sing-box 本机 IP
+- systemd-resolved 备份：`/etc/sing-box/manager/resolved.conf.before-sing-box`
+- resolv.conf 备份：`/etc/sing-box/manager/resolv.conf.before-sing-box`
 - sing-box 主配置：`/etc/sing-box/config.json`
 - UI 管理配置：`/etc/sing-box/manager/`
 - 自定义规则文件：`/etc/sing-box/custom-rules/`
+- TProxy 脚本：`/usr/local/sbin/sing-box-tproxy-setup`
+- TProxy sysctl：`/etc/sysctl.d/99-sing-box-tproxy.conf`
 
-例如网关机器内网 IP 是 `192.168.1.2`，安装完成后 `/etc/resolv.conf` 通常会变成：
+如果代理节点已经配置并跑通，且你希望某台客户端或前端软路由把 DNS 交给 `sing-box` 分流，可以手动把那台设备的 DNS 指向 sing-box 机器的内网 IPv4，例如：
 
 ```conf
 nameserver 192.168.1.2
 ```
 
-这是旁路网关模式的正常行为：本机和局域网客户端的 DNS 先交给 `sing-box`，再由规则决定直连、代理或 FakeIP。
+这一步不是安装必需项。没有配置真实代理节点前，把客户端 DNS 指向 sing-box 可能导致国外网站或部分需要代理的域名打不开；添加正常节点并保存后，代理分流才会完整工作。
 
-需要注意：刚安装完成时，如果还没有添加可用的真实代理节点，国外网站和部分需要代理的域名不一定能打开。进入规则 UI 添加正常节点并保存后，代理分流恢复，外网访问通常就会正常。
+如果你确实需要让本机广播 IPv6 默认网关，可以自行安装 `radvd`，并在运行 UI 或同步脚本时显式设置：
+
+```bash
+SING_BOX_GATEWAY_ENABLE_RADVD=1 python3 /usr/local/sbin/refresh-sing-box-runtime-config
+```
+
+生产网络里不建议在多台旁路机上同时启用 RA 广播。一般更稳的做法是：前端软路由继续作为默认网关，只把 FakeIP 网段或指定流量路由到 sing-box 机器。
 
 ### IPv6 FakeIP 推荐配置
 

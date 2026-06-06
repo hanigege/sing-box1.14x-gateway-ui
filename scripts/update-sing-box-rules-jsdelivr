@@ -14,12 +14,7 @@ if ! flock -n 9; then
 fi
 
 TMP_DIR="$(mktemp -d)"
-RESOLV_BACKUP="$TMP_DIR/resolv.conf.before-rule-update"
-RESOLV_CHANGED=0
 cleanup() {
-  if [ "$RESOLV_CHANGED" = "1" ] && [ -f "$RESOLV_BACKUP" ]; then
-    cp -a "$RESOLV_BACKUP" /etc/resolv.conf || true
-  fi
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
@@ -46,40 +41,6 @@ UPDATED_FILES=()
 BACKUP_DIR="$TMP_DIR/backup"
 NEW_DIR="$TMP_DIR/new"
 mkdir -p "$BACKUP_DIR" "$NEW_DIR"
-
-local_addresses() {
-  ip -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1
-}
-
-resolver_has_external_nameserver() {
-  local ns local_ip
-  while read -r ns; do
-    [ -n "$ns" ] || continue
-    case "$ns" in
-      127.*|::1|0.0.0.0|::) continue ;;
-    esac
-    while read -r local_ip; do
-      [ "$ns" = "$local_ip" ] && continue 2
-    done < <(local_addresses)
-    return 0
-  done < <(awk '/^nameserver[[:space:]]+/ {print $2}' /etc/resolv.conf 2>/dev/null)
-  return 1
-}
-
-ensure_host_resolver() {
-  if resolver_has_external_nameserver; then
-    return
-  fi
-  echo "host resolver points to localhost/gateway or is empty; using public DNS for rule update"
-  cp -a /etc/resolv.conf "$RESOLV_BACKUP" 2>/dev/null || true
-  RESOLV_CHANGED=1
-  rm -f /etc/resolv.conf
-  {
-    echo "nameserver 223.5.5.5"
-    echo "nameserver 1.1.1.1"
-    echo "options timeout:2 attempts:2"
-  } > /etc/resolv.conf
-}
 
 rule_url() {
   local mirror="$1" repo="$2" branch="$3" subdir="$4" name="$5"
@@ -162,12 +123,9 @@ restore_backups() {
 
 fail=0
 if ! select_mirrors; then
-  echo "no rule mirror passed quick probe with current DNS; trying temporary public DNS" >&2
-  ensure_host_resolver
-  if ! select_mirrors; then
-    echo "WARN: no rule mirror passed quick probe; using configured mirrors with short timeouts" >&2
-    SELECTED_MIRRORS=("${MIRRORS[@]}")
-  fi
+  echo "WARN: no rule mirror passed quick probe with current DNS; using configured mirrors with short timeouts" >&2
+  echo "WARN: system DNS was not changed; check /etc/resolv.conf or Cloud-Init DNS if downloads fail" >&2
+  SELECTED_MIRRORS=("${MIRRORS[@]}")
 fi
 for name in "${GEOSITE[@]}"; do
   fetch_one "SagerNet/sing-geosite" "rule-set" "geosite" "$name" 1 || fail=1

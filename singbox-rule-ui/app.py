@@ -39,6 +39,7 @@ TPROXY_SCRIPT = Path(os.environ.get("RULE_UI_TPROXY_SCRIPT", "/usr/local/sbin/si
 TPROXY_SYSCTL = Path(os.environ.get("RULE_UI_TPROXY_SYSCTL", "/etc/sysctl.d/99-sing-box-tproxy.conf"))
 RADVD_CONF = Path(os.environ.get("RULE_UI_RADVD_CONF", "/etc/radvd.conf"))
 RADVD_SERVICE = os.environ.get("RULE_UI_RADVD_SERVICE", "radvd.service")
+ENABLE_RADVD = os.environ.get("SING_BOX_GATEWAY_ENABLE_RADVD", os.environ.get("RULE_UI_ENABLE_RADVD", "0")).lower() in ("1", "true", "yes", "on")
 TPROXY_PORT = int(os.environ.get("RULE_UI_TPROXY_PORT", "9888"))
 TPROXY_MARK = int(os.environ.get("RULE_UI_TPROXY_MARK", "1"))
 TPROXY_TABLE = int(os.environ.get("RULE_UI_TPROXY_TABLE", "100"))
@@ -1461,7 +1462,13 @@ def sync_tproxy(nodes=None, groups=None):
         shutil.copy2(script_path, TPROXY_SCRIPT)
         TPROXY_SCRIPT.chmod(0o755)
         shutil.copy2(sysctl_path, TPROXY_SYSCTL)
-    radvd = sync_radvd(sets["interface"]) if shutil.which("radvd") else {"code": 0, "skipped": True, "reason": "radvd not installed"}
+    if ENABLE_RADVD and shutil.which("radvd"):
+        radvd = sync_radvd(sets["interface"])
+    else:
+        reason = "disabled; set SING_BOX_GATEWAY_ENABLE_RADVD=1 to advertise this host as an IPv6 router"
+        if ENABLE_RADVD and not shutil.which("radvd"):
+            reason = "radvd not installed"
+        radvd = {"code": 0, "skipped": True, "reason": reason}
     restart = run_command(["systemctl", "restart", TPROXY_SERVICE], timeout=20)
     status = unit_status(TPROXY_SERVICE)
     code = 0 if restart["code"] == 0 and status == "active" and radvd.get("code", 0) == 0 else 1
