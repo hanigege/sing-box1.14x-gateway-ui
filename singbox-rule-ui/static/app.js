@@ -1494,6 +1494,7 @@ async function save() {
     setStatus(error.message || t("changesBlocked"), "bad");
   } finally {
     setBusy(false);
+    render();
   }
 }
 
