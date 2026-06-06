@@ -1237,8 +1237,6 @@ sysctl -w "net.ipv6.conf.${{IFACE}}.accept_ra_defrtr=1" >/dev/null 2>&1 || true
 
 ip rule add fwmark "${{TPROXY_MARK}}" table "${{TPROXY_TABLE}}" priority 100 2>/dev/null || true
 ip route replace local 0.0.0.0/0 dev lo table "${{TPROXY_TABLE}}"
-ip -6 rule add fwmark "${{TPROXY_MARK}}" table "${{TPROXY_TABLE}}" priority 100 2>/dev/null || true
-ip -6 route replace local ::/0 dev lo table "${{TPROXY_TABLE}}"
 
 nft delete table inet singbox_tproxy 2>/dev/null || true
 nft -f - <<NFT
@@ -1266,11 +1264,11 @@ table inet singbox_tproxy {{
 
     iifname != "${{IFACE}}" return
     ip daddr @bypass4 return
-    ip6 daddr @bypass6 return
+    ip6 nexthdr {{ tcp, udp }} return
     udp dport 53 return
     tcp dport 53 return
 
-    meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" tproxy to :"${{TPROXY_PORT}}" accept
+    ip protocol {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" tproxy ip to :"${{TPROXY_PORT}}" accept
   }}
 
   chain dns_hijack {{
