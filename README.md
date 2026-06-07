@@ -198,6 +198,14 @@ IPv6 FakeIP 网段：2001:db8:1234:1001::/64
 /routing/rule/add dst-address=2001:db8:1234:1001::/64 action=lookup table=sing-box-v6
 ```
 
+如果前端软路由继续负责局域网默认网关和 DNS，不希望客户端拿到 sing-box 的 IPv6 DNS，可以关闭 RouterOS 的 RDNSS/DHCPv6 其它配置提示：
+
+```routeros
+/ipv6/nd/set [find interface=bridge1] advertise-dns=no other-configuration=no managed-address-configuration=no
+```
+
+这样可以保留 sing-box 机器上的 IPv6 DNS 监听，例如 `fd00::2` 或 `fd88::6666`，但不会通过 RA/RDNSS 下发给客户端。客户端 DNS 仍由前端软路由、Cloud-Init 或你手动配置决定。
+
 配置正确后，国外域名的解析结果通常会是：
 
 ```text
