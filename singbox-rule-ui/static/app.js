@@ -56,6 +56,8 @@ const translations = {
     allowInsecure: "Allow insecure TLS",
     defaultProxy: "Default proxy",
     activeProxy: "Active proxy",
+    autoSelected: "Auto selected",
+    autoStatusUnavailable: "Auto status unavailable",
     setDefault: "Set default",
     defaultSaved: "Saved default",
     activeNow: "Active now",
@@ -243,6 +245,8 @@ const translations = {
     allowInsecure: "允许不安全 TLS",
     defaultProxy: "默认代理",
     activeProxy: "当前生效",
+    autoSelected: "Auto 选中",
+    autoStatusUnavailable: "Auto 状态不可用",
     setDefault: "设为默认",
     defaultSaved: "已保存默认",
     activeNow: "当前生效",
@@ -535,6 +539,8 @@ async function loadProxyInfo(testDelay = false) {
     if (result.proxy) {
       runtimeProxy = {
         now: result.proxy.ok ? result.proxy.data?.now || null : null,
+        autoNow: result.proxy.ok ? result.proxy.data?.autoNow || null : null,
+        autoError: result.proxy.ok ? result.proxy.data?.autoError || "" : "",
         available: Boolean(result.proxy.ok),
         error: result.proxy.ok ? "" : result.proxy.error,
       };
@@ -1057,7 +1063,9 @@ function renderDefaultSelect() {
   for (const tag of options) {
     const option = document.createElement("option");
     option.value = tag;
-    option.textContent = `${t("defaultProxy")}: ${tag}`;
+    const autoTag = autoDisplayTag();
+    const label = tag === "Auto" && autoTag ? `Auto -> ${autoTag}` : tag;
+    option.textContent = `${t("defaultProxy")}: ${label}`;
     option.selected = tag === current;
     select.appendChild(option);
   }
@@ -1082,6 +1090,30 @@ function delayTone(tag) {
   return "bad";
 }
 
+function fastestDelayTag() {
+  let bestTag = "";
+  let bestDelay = Infinity;
+  for (const tag of enabledNodeTags()) {
+    const delay = delays[tag]?.delay;
+    if (Number.isInteger(delay) && delay < bestDelay) {
+      bestTag = tag;
+      bestDelay = delay;
+    }
+  }
+  return bestTag;
+}
+
+function autoDisplayTag() {
+  return runtimeProxy.autoNow || fastestDelayTag();
+}
+
+function activeProxyLabel() {
+  if (!runtimeProxy.now) return "";
+  const autoTag = autoDisplayTag();
+  if (runtimeProxy.now === "Auto" && autoTag) return `Auto -> ${autoTag}`;
+  return runtimeProxy.now;
+}
+
 function renderNodes() {
   const nodes = state.nodes || [];
   state.groups.auto = state.groups.auto || {};
@@ -1094,7 +1126,7 @@ function renderNodes() {
   $("nodeTitle").textContent = t("nodes");
   $("nodeSummary").textContent = editingNodeTag
     ? `${t("editingNode")}: ${editingNodeTag}`
-    : `${nodes.length} ${t("entries")} · ${t("defaultProxy")}: ${currentDefault()}${runtimeProxy.now ? ` · ${t("activeProxy")}: ${runtimeProxy.now}` : ""}`;
+    : `${nodes.length} ${t("entries")} · ${t("defaultProxy")}: ${currentDefault()}${activeProxyLabel() ? ` · ${t("activeProxy")}: ${activeProxyLabel()}` : ""}`;
   $("nodeSubmit").textContent = editingNodeTag ? t("updateNode") : t("addNode");
   $("nodeCancel").classList.toggle("hidden", !editingNodeTag);
   renderDefaultSelect();
@@ -1112,9 +1144,10 @@ function renderNodes() {
   const autoTitle = document.createElement("div");
   autoTitle.className = "node-title";
   const autoName = document.createElement("strong");
-  autoName.textContent = "Auto";
+  const autoTag = autoDisplayTag();
+  autoName.textContent = autoTag ? `Auto -> ${autoTag}` : "Auto";
   const autoMeta = document.createElement("span");
-  autoMeta.textContent = "urltest · automatic best node";
+  autoMeta.textContent = autoTag ? `${t("autoSelected")}: ${autoTag}` : "urltest · automatic best node";
   const autoBadges = document.createElement("div");
   autoBadges.className = "node-badges";
   if (currentDefault() === "Auto") {
@@ -1123,11 +1156,17 @@ function renderNodes() {
     saved.textContent = t("defaultSaved");
     autoBadges.appendChild(saved);
   }
-  if (runtimeProxy.now === "Auto") {
+  if (autoTag) {
     const activeBadge = document.createElement("span");
-    activeBadge.className = "node-pill active";
-    activeBadge.textContent = t("activeNow");
+    activeBadge.className = `node-pill ${runtimeProxy.now === "Auto" ? "active" : "auto-selected"}`;
+    activeBadge.textContent = `${runtimeProxy.now === "Auto" ? t("activeNow") : t("autoSelected")}: ${autoTag}`;
     autoBadges.appendChild(activeBadge);
+  }
+  if (runtimeProxy.now === "Auto" && runtimeProxy.autoError) {
+    const errorBadge = document.createElement("span");
+    errorBadge.className = "node-pill bad";
+    errorBadge.textContent = t("autoStatusUnavailable");
+    autoBadges.appendChild(errorBadge);
   }
   autoTitle.append(autoName, autoMeta, autoBadges);
   const autoActions = document.createElement("div");
@@ -1149,8 +1188,9 @@ function renderNodes() {
     const isEnabled = node.enabled !== false;
     const isDefault = currentDefault() === outbound.tag;
     const isRuntime = runtimeProxy.now === outbound.tag;
+    const isAutoRuntime = runtimeProxy.now === "Auto" && autoDisplayTag() === outbound.tag;
     const card = document.createElement("div");
-    card.className = `node-card ${editingNodeTag === outbound.tag ? "selected" : ""} ${isDefault ? "default" : ""} ${!isEnabled ? "disabled" : ""}`;
+    card.className = `node-card ${editingNodeTag === outbound.tag ? "selected" : ""} ${isDefault ? "default" : ""} ${isAutoRuntime ? "runtime" : ""} ${!isEnabled ? "disabled" : ""}`;
     card.addEventListener("click", () => selectNode(outbound.tag));
     const title = document.createElement("div");
     title.className = "node-title";
@@ -1175,6 +1215,12 @@ function renderNodes() {
       activeBadge.className = "node-pill active";
       activeBadge.textContent = t("activeNow");
       badges.appendChild(activeBadge);
+    }
+    if (isAutoRuntime) {
+      const autoBadge = document.createElement("span");
+      autoBadge.className = "node-pill auto-selected";
+      autoBadge.textContent = t("autoSelected");
+      badges.appendChild(autoBadge);
     }
     title.append(name, meta, badges);
 
@@ -1274,21 +1320,20 @@ function syncNodeFormState() {
 async function chooseDefault(tag) {
   state.groups.proxy = state.groups.proxy || {};
   state.groups.proxy.default = tag;
-  markChanged();
   setBusy(true);
-  setStatus(t("pendingDefault"));
+  setStatus(t("savingWithCheck"));
   render();
   try {
-    const result = await api("/api/proxy/select", {
+    const result = await api("/api/proxy/default", {
       method: "POST",
       body: JSON.stringify({ tag }),
     });
-    if (result.proxy?.ok) {
-      runtimeProxy = { now: tag, available: true, error: "" };
-      setStatus(t("pendingDefault"), "ok");
-    } else {
-      setStatus(`${t("proxySwitchFailed")}: ${result.proxy?.error || ""}`, "bad");
-    }
+    state = result.state || state;
+    maintenance = result.maintenance || maintenance;
+    await loadProxyInfo(false);
+    setDirty(false);
+    loadProxyInfo(true).then(() => render()).catch(() => {});
+    setStatus(t("savedAndRestarted"), "ok");
   } catch (error) {
     setStatus(`${t("proxySwitchFailed")}: ${error.message}`, "bad");
   } finally {
@@ -1487,13 +1532,14 @@ async function save() {
     });
     state = result.state;
     maintenance = result.maintenance || maintenance;
-    await loadProxyInfo(true);
+    await loadProxyInfo(false);
     if (editingNodeTag && getNode(editingNodeTag)) {
       editingNodeSnapshot = stableNodeString(buildNodeFromForm());
       nodeEditChanged = false;
     }
     setDirty(false);
     render();
+    loadProxyInfo(true).then(() => render()).catch(() => {});
     if (result.tproxySync && result.tproxySync.code !== 0) {
       setStatus(`${t("savedAndRestarted")}；${t("tproxySyncFailed")}`, "bad");
     } else {

@@ -1655,17 +1655,49 @@ def clash_api_request(path, method="GET", payload=None, timeout=8):
 
 
 def get_proxy_state():
-    result = clash_api_request("/proxies/Proxy")
-    if not result["ok"]:
-        return result
-    data = result["data"]
-    return {"ok": True, "code": result["code"], "data": {"now": data.get("now"), "all": data.get("all", [])}}
+    proxy_result = clash_api_request("/proxies/Proxy")
+    if not proxy_result["ok"]:
+        return proxy_result
+    proxy_data = proxy_result["data"]
+    data = {
+        "now": proxy_data.get("now"),
+        "all": proxy_data.get("all", []),
+        "autoNow": None,
+        "autoHistory": [],
+    }
+    if "Auto" in data["all"]:
+        auto_result = clash_api_request("/proxies/Auto")
+        if auto_result["ok"]:
+            auto_data = auto_result["data"]
+            data["autoNow"] = auto_data.get("now")
+            data["autoHistory"] = auto_data.get("history", [])
+        else:
+            data["autoError"] = auto_result.get("error") or "Auto status unavailable"
+    return {"ok": True, "code": proxy_result["code"], "data": data}
 
 
 def set_proxy_now(tag):
     if tag != "Auto" and tag not in enabled_node_tags(load_nodes()):
         raise ValueError(f"Unknown enabled node: {tag}")
     return clash_api_request("/proxies/Proxy", method="PUT", payload={"name": tag})
+
+
+def set_proxy_now_checked(tag, attempts=8, delay=0.5):
+    last_result = None
+    for _ in range(attempts):
+        last_result = set_proxy_now(tag)
+        if last_result["ok"]:
+            state = get_proxy_state()
+            if state.get("ok") and state.get("data", {}).get("now") == tag:
+                return {"ok": True, "code": last_result["code"], "data": state["data"]}
+        time.sleep(delay)
+    state = get_proxy_state()
+    return {
+        "ok": False,
+        "code": (last_result or {}).get("code", 0),
+        "error": f"Runtime proxy did not switch to {tag}",
+        "data": state.get("data") if isinstance(state, dict) else None,
+    }
 
 
 def read_delay_history(tag):
@@ -1797,6 +1829,68 @@ def apply_all(normalized_lists, nodes, groups):
     write_json(GROUPS_PATH, groups)
     write_json(CONFIG_PATH, render_config(nodes=nodes, groups=groups, rule_dir=RULE_DIR))
     return {"rules": saved, "backups": backups}
+
+
+def apply_proxy_default(tag):
+    nodes = load_nodes()
+    tags = {"Auto", *enabled_node_tags(nodes)}
+    if tag not in tags:
+        raise ValueError(f"Unknown proxy default: {tag}")
+    groups = load_groups()
+    groups.setdefault("proxy", {})
+    groups["proxy"]["default"] = tag
+    normalized_lists = {name: read_entries(name) for name in LISTS}
+    check = staged_check(normalized_lists, nodes=nodes, groups=groups)
+    if check["code"] != 0:
+        return {"ok": False, "error": "Config check failed. Default proxy was not saved.", "check": check, "state": load_state()}
+    result = apply_all(normalized_lists, nodes, groups)
+    restart = restart_sing_box()
+    rollback = None
+    if restart["code"] != 0 or service_status() != "active":
+        rollback_apply(result)
+        rollback_restart = restart_sing_box()
+        rollback = {"restart": rollback_restart, "service": service_status()}
+        return {
+            "ok": False,
+            "error": "Restart failed. Previous config was restored.",
+            "check": check,
+            "saved": result,
+            "restart": restart,
+            "rollback": rollback,
+            "state": load_state(),
+        }
+    tproxy_sync = sync_tproxy(nodes=nodes, groups=groups)
+    # 默认节点关系到真实出站路径，不能只写配置或只切运行态；保存后必须校验 Clash API 的当前选择已经对齐。
+    proxy = set_proxy_now_checked(tag)
+    # sing-box 重启后 Auto 的 now/history 可能短暂为空，主动触发一次测速，避免 UI 新增节点后看不到 Auto 当前判断。
+    auto_probe = test_node_delay("Auto", timeout_ms=8000) if "Auto" in tags else None
+    if not proxy["ok"]:
+        return {
+            "ok": False,
+            "error": proxy.get("error") or "Runtime proxy switch failed.",
+            "check": check,
+            "saved": result,
+            "restart": restart,
+            "rollback": rollback,
+            "tproxySync": tproxy_sync,
+            "proxy": proxy,
+            "autoProbe": auto_probe,
+            "maintenance": maintenance_status(),
+            "state": load_state(),
+        }
+    return {
+        "ok": True,
+        "error": "",
+        "check": check,
+        "saved": result,
+        "restart": restart,
+        "rollback": rollback,
+        "tproxySync": tproxy_sync,
+        "proxy": proxy,
+        "autoProbe": auto_probe,
+        "maintenance": maintenance_status(),
+        "state": load_state(),
+    }
 
 
 def export_backup_payload():
@@ -2117,6 +2211,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not tag:
                     raise ValueError("tag is required")
                 self.send_json({"proxy": set_proxy_now(tag), "state": load_state()})
+                return
+            if parsed.path == "/api/proxy/default":
+                tag = str(payload.get("tag", "")).strip()
+                if not tag:
+                    raise ValueError("tag is required")
+                result = apply_proxy_default(tag)
+                status = 200 if result["ok"] else 422 if result.get("check", {}).get("code") != 0 else 500
+                self.send_json(result, status)
                 return
             self.send_error_json("Not found", 404)
         except Exception as exc:

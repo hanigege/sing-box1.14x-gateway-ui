@@ -621,6 +621,10 @@ select {
   opacity: 0.68;
 }
 
+.node-card.runtime {
+  border-color: #87c69b;
+}
+
 .node-title {
   display: grid;
   gap: 3px;
@@ -684,6 +688,12 @@ select {
   border-color: #b9dec4;
   background: #edf8f0;
   color: var(--ok);
+}
+
+.node-pill.auto-selected {
+  border-color: #f4d18a;
+  background: #fff8e8;
+  color: #7a4d12;
 }
 
 .node-actions {
