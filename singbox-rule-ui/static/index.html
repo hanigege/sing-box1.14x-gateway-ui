@@ -112,16 +112,10 @@
               <span data-i18n="fakeipV6">IPv6 range</span>
               <input id="fakeipV6" type="text" autocomplete="off" placeholder="2001:2::/64" />
             </label>
-            <label class="switch-card wide-field">
-              <span class="switch-control">
-                <input id="fakeipBlockQuic" type="checkbox" />
-                <span class="switch-slider" aria-hidden="true"></span>
-              </span>
-              <span class="switch-copy">
-                <strong data-i18n="fakeipBlockQuic">Block FakeIP QUIC</strong>
-                <small data-i18n="fakeipBlockQuicHelp">Force FakeIP QUIC back to TCP to keep proxy latency stable.</small>
-              </span>
-            </label>
+            <div class="policy-note wide-field">
+              <strong data-i18n="fakeipQuicPolicy">FakeIP QUIC protection is always on</strong>
+              <small data-i18n="fakeipQuicPolicyHelp">UDP/443 to FakeIP ranges is blocked so browsers fall back to TCP and proxy latency stays stable.</small>
+            </div>
           </section>
 
           <form id="nodeForm" class="node-form">

@@ -459,8 +459,8 @@ def load_groups():
     groups["fakeip"].setdefault("tag", "fakeip-dns")
     groups["fakeip"].setdefault("inet4_range", "28.0.0.0/8")
     groups["fakeip"].setdefault("inet6_range", "2001:2::/64")
-    groups["fakeip"].setdefault("block_quic", True)
-    groups["fakeip"]["block_quic"] = normalize_bool(groups["fakeip"]["block_quic"])
+    # FakeIP QUIC 保护固定开启，避免旧备份或旧 UI 状态把稳定性边界关掉。
+    groups["fakeip"]["block_quic"] = True
     if groups["ddns"].get("dns") not in ("local", "remote"):
         groups["ddns"]["dns"] = "local"
     return groups
@@ -768,8 +768,6 @@ def apply_fakeip_quic_policy(config, groups):
             and any(str(item) in fake_networks for item in rule.get("ip_cidr", []))
         )
     ]
-    if not normalize_bool(fakeip.get("block_quic", True)):
-        return
     insert_at = 0
     for index, rule in enumerate(rules):
         if (
@@ -2037,7 +2035,8 @@ def normalize_payload_groups(raw_groups, nodes=None):
                 groups["fakeip"]["inet6_range"],
                 strict=True,
             )
-            groups["fakeip"]["block_quic"] = normalize_bool(fakeip.get("block_quic", groups["fakeip"].get("block_quic", True)))
+            # FakeIP QUIC 保护是网关稳定边界：关闭会让浏览器 QUIC 长连接压住代理链路和连接表。
+            groups["fakeip"]["block_quic"] = True
         ddns = raw_groups.get("ddns")
         if isinstance(ddns, dict):
             mode = str(ddns.get("dns", groups["ddns"].get("dns", "local"))).strip()

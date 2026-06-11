@@ -142,7 +142,7 @@ nameserver 192.168.1.2
 
 内置规则更新脚本只维护运行配置真实引用的规则集：`geosite-geolocation-!cn`、`geosite-cn`、`geosite-geolocation-cn`、`geosite-icloud@cn`、`geosite-apple@cn`、`geosite-speedtest`、`geosite-telegram`、`geoip-cn` 和 `geoip-telegram`。默认使用 MetaCubeX 的 sing-box `.srs` 规则集，不再依赖 SagerNet 规则仓库；下载时优先走 `https://scg.jgaga.tk/https://raw.githubusercontent.com/...`，并用真实 DNS 解析规则源主机，避免宿主机 `/etc/resolv.conf` 指向 sing-box 时拿到 FakeIP 后直连超时。Telegram 是默认保留的核心例外，因为客户端可能直接连接官方 IP 段，只靠域名地理规则不够稳。YouTube、Netflix 等其它应用类规则如果没有被路由规则或 UI 开关引用，默认不下载；这些站点仍由 `geosite-geolocation-!cn` 覆盖走代理，只有需要为某个应用单独指定策略时，才应该新增对应 UI 开关和规则引用。规则下载越多不等于体验越好，未引用文件只会增加定时更新失败、死链和排障噪音。
 
-FakeIP 默认启用 UDP/443 保护：只对 FakeIP 网段的 QUIC 流量执行 `block`，让浏览器自动回落到 TCP/HTTPS，再继续按域名规则走直连或代理。这样可以减少 YouTube、Google 等大流量 QUIC 长连接压住代理节点和连接表；真实目标 IP 的游戏 UDP、语音 UDP 和直连业务不受这条规则影响。确实需要代理 QUIC 时，可以在 Rule UI 的 FakeIP 区域关闭“拦截 FakeIP UDP/443”。
+FakeIP 固定启用 UDP/443 保护：只对 FakeIP 网段的 QUIC 流量执行 `block`，让浏览器自动回落到 TCP/HTTPS，再继续按域名规则走直连或代理。这样可以减少 YouTube、Google 等大流量 QUIC 长连接压住代理节点和连接表；真实目标 IP 的游戏 UDP、语音 UDP 和直连业务不受这条规则影响。这个保护属于网关稳定性边界，不在 UI 里提供关闭入口。
 
 如果你确实需要让本机广播 IPv6 默认网关，可以自行安装 `radvd`，并在运行安装器、UI 或同步脚本时显式设置：
 
