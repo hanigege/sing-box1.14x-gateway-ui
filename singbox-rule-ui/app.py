@@ -450,8 +450,8 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     apply_greylist_dns_fakeip(config)
     apply_inbound_dns_fakeip_fallback(config)
     apply_ddns_dns_settings(config, groups)
-    apply_direct_speedtest_route(config)
     apply_fakeip_route_rule(config, groups)
+    apply_direct_speedtest_route(config)
     apply_route_final_policy(config)
     proxy_default = groups.get("proxy", {}).get("default", "Auto")
     if proxy_default not in {"Auto", *tags}:
@@ -536,32 +536,46 @@ def remove_rule_set_value(value, target):
 def apply_direct_speedtest_route(config):
     rules = config.setdefault("route", {}).setdefault("rules", [])
     direct_rule = {"rule_set": "geosite-speedtest", "outbound": "direct"}
+    fakeip_networks = set()
+    for server in config.get("dns", {}).get("servers", []) or []:
+        if isinstance(server, dict) and server.get("type") == "fakeip":
+            fakeip_networks.update(
+                str(value)
+                for value in (server.get("inet4_range"), server.get("inet6_range"))
+                if value
+            )
     cleaned = []
-    has_direct = False
     for rule in rules:
         if not isinstance(rule, dict):
             cleaned.append(rule)
             continue
         if rule.get("rule_set") == "geosite-speedtest" and rule.get("outbound") == "direct":
-            has_direct = True
-            cleaned.append(rule)
             continue
-        if rule.get("outbound") == "Proxy":
+        rule_set = rule.get("rule_set")
+        if rule.get("outbound") == "Proxy" and (
+            rule_set == "geosite-speedtest" or (isinstance(rule_set, list) and "geosite-speedtest" in rule_set)
+        ):
             updated = dict(rule)
-            updated["rule_set"] = remove_rule_set_value(updated.get("rule_set"), "geosite-speedtest")
+            updated["rule_set"] = remove_rule_set_value(rule_set, "geosite-speedtest")
             if updated.get("rule_set") is None:
                 continue
             cleaned.append(updated)
             continue
         cleaned.append(rule)
     rules[:] = cleaned
-    if has_direct:
-        return
-    insert_at = 0
+    insert_at = len(rules)
     for index, rule in enumerate(rules):
+        if (
+            isinstance(rule, dict)
+            and rule.get("outbound") == "Proxy"
+            and isinstance(rule.get("ip_cidr"), list)
+            and any(str(item) in fakeip_networks for item in rule.get("ip_cidr", []))
+        ):
+            insert_at = index
+            break
         if isinstance(rule, dict) and rule.get("rule_set") in (CUSTOM_TAGS["whitelist"], CUSTOM_TAGS["ddns"], CUSTOM_TAGS["greylist"]):
             insert_at = index + 1
-    # 测速流量会主动打满带宽，不能默认压到代理节点上，否则会拖垮游戏和实时业务。
+    # 测速流量必须排在 FakeIP 捕获前；否则域名先变成 FakeIP 后会被送进代理。
     rules.insert(insert_at, direct_rule)
 
 
