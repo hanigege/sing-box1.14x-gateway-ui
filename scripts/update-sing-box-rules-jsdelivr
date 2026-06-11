@@ -21,8 +21,8 @@ cleanup() {
 trap cleanup EXIT
 
 DEFAULT_RAW_MIRRORS=(
-  "https://raw.githubusercontent.com"
   "https://scg.jgaga.tk/https://raw.githubusercontent.com"
+  "https://raw.githubusercontent.com"
   "https://gh-proxy.com/https://raw.githubusercontent.com"
   "https://gh.llkk.cc/https://raw.githubusercontent.com"
 )
@@ -32,6 +32,7 @@ DEFAULT_CDN_MIRRORS=(
 )
 IFS=" " read -r -a RAW_MIRRORS <<< "${RULE_UPDATE_RAW_MIRRORS:-${DEFAULT_RAW_MIRRORS[*]}}"
 IFS=" " read -r -a CDN_MIRRORS <<< "${RULE_UPDATE_CDN_MIRRORS:-${DEFAULT_CDN_MIRRORS[*]}}"
+IFS=" " read -r -a RULE_UPDATE_DNS_SERVERS <<< "${RULE_UPDATE_DNS_SERVERS:-223.5.5.5 1.1.1.1}"
 
 GEOSITE=(
   # 只下载运行配置真实引用的规则集；未引用的应用规则会增加定时更新噪音和维护成本。
@@ -63,6 +64,37 @@ source_url() {
   esac
 }
 
+url_host() {
+  local url="$1"
+  url="${url#*://}"
+  echo "${url%%/*}"
+}
+
+resolve_host_ipv4() {
+  local host="$1" server answer
+  for server in "${RULE_UPDATE_DNS_SERVERS[@]}"; do
+    answer="$(dig +short @"$server" "$host" A 2>/dev/null | grep -E '^[0-9.]+$' | head -1 || true)"
+    if [ -n "$answer" ]; then
+      echo "$answer"
+      return 0
+    fi
+  done
+  return 1
+}
+
+curl_rule_file() {
+  local url="$1" output="$2" log="$3"
+  local host ip curl_flags
+  host="$(url_host "$url")"
+  ip="$(resolve_host_ipv4 "$host" || true)"
+  curl_flags=(-4 -fsSL --connect-timeout 4 --max-time 20)
+  if [ -n "$ip" ]; then
+    # 规则更新在宿主机执行，必须绕开本机 FakeIP DNS，避免 raw/scg 被解析成 28.x 后直连超时。
+    curl_flags+=(--resolve "${host}:443:${ip}")
+  fi
+  curl "${curl_flags[@]}" "$url" -o "$output" 2>"$log"
+}
+
 required_files_present() {
   local name
   for name in "${GEOSITE[@]}"; do
@@ -80,7 +112,7 @@ select_mirrors() {
   SELECTED_MIRRORS=()
   for mirror in "${RAW_MIRRORS[@]}" "${CDN_MIRRORS[@]}"; do
     url="$(source_url "$mirror" "metacubex" "geosite" "cn")"
-    if curl -4 -fsSL --connect-timeout 2 --max-time 5 "$url" -o "$probe" 2>"$TMP_DIR/probe.log" \
+    if curl_rule_file "$url" "$probe" "$TMP_DIR/probe.log" \
       && [ -s "$probe" ] && [ "$(wc -c < "$probe")" -gt 16 ]; then
       SELECTED_MIRRORS+=("$mirror")
       echo "rule mirror available: $mirror"
@@ -108,11 +140,7 @@ fetch_one() {
   for mirror in "${SELECTED_MIRRORS[@]}"; do
     for source in "metacubex"; do
       url="$(source_url "$mirror" "$source" "$subdir" "$name")"
-      curl_flags=(-4 -fsSL --connect-timeout 2 --max-time 6)
-      if [ "$required" = "0" ]; then
-        curl_flags=(-4 -fsSL --silent --show-error --connect-timeout 2 --max-time 5)
-      fi
-      if curl "${curl_flags[@]}" "$url" -o "$tmp" 2>"$TMP_DIR/curl-${subdir}-${name}.log"; then
+      if curl_rule_file "$url" "$tmp" "$TMP_DIR/curl-${subdir}-${name}.log"; then
         if [ -s "$tmp" ] && [ "$(wc -c < "$tmp")" -gt 16 ]; then
           echo "downloaded ${subdir}/${name}.srs via ${source} ${mirror}"
           UPDATED_FILES+=("$subdir/$name.srs:$tmp")
