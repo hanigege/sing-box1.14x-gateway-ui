@@ -214,6 +214,7 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
                 local_rule_set("geosite-geolocation-cn", "/etc/sing-box/rules/geosite/geolocation-cn.srs", "binary"),
                 local_rule_set("geosite-icloud@cn", "/etc/sing-box/rules/geosite/icloud@cn.srs", "binary"),
                 local_rule_set("geosite-apple@cn", "/etc/sing-box/rules/geosite/apple@cn.srs", "binary"),
+                local_rule_set("geosite-speedtest", "/etc/sing-box/rules/geosite/speedtest.srs", "binary"),
                 local_rule_set("geoip-cn", "/etc/sing-box/rules/geoip/cn.srs", "binary"),
                 local_rule_set("custom-whitelist", "/etc/sing-box/custom-rules/whitelist.json"),
                 local_rule_set("custom-blacklist", "/etc/sing-box/custom-rules/blacklist.json"),
@@ -229,6 +230,8 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
                 {"rule_set": "custom-greylist", "outbound": "Proxy"},
                 # 测速流量会主动打满带宽，默认直连，避免压垮代理节点影响游戏和实时业务。
                 {"rule_set": ["geosite-speedtest"], "outbound": "direct"},
+                # 只拦 FakeIP 的 UDP/443，让浏览器回落 TCP，减少 QUIC 长连接压住代理节点。
+                {"network": "udp", "port": 443, "ip_cidr": [fake4, fake6], "outbound": "block"},
                 {"ip_cidr": [fake4, fake6], "outbound": "Proxy"},
                 {"ip_is_private": True, "outbound": "direct"},
                 {"rule_set": ["geosite-geolocation-!cn"], "outbound": "Proxy"},
@@ -284,7 +287,7 @@ def main():
         "auto": {"url": "https://www.gstatic.com/generate_204", "interval": "30s", "tolerance": 50},
         "direct": {"type": "direct", "tag": "direct"},
         "block": {"type": "block", "tag": "block"},
-        "fakeip": {"tag": "fakeip-dns", "inet4_range": fake4, "inet6_range": fake6},
+        "fakeip": {"tag": "fakeip-dns", "inet4_range": fake4, "inet6_range": fake6, "block_quic": True},
         "ddns": {"dns": "local"},
     }
     for name in ("whitelist", "blacklist", "greylist", "ddns"):

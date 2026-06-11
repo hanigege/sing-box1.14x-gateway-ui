@@ -66,6 +66,30 @@ DOMAIN_RE = re.compile(r"^[A-Za-z0-9_*.-]+$")
 SPECIAL_OUTBOUNDS = {"Proxy", "Auto", "direct", "block"}
 SUPPORTED_NODE_TYPES = {"hysteria2", "vless"}
 BACKUP_VERSION = 1
+LEGACY_APP_RULE_SETS = {
+    "geosite-ai",
+    "geosite-youtube",
+    "geosite-google",
+    "geosite-telegram",
+    "geosite-github",
+    "geosite-cloudflare",
+    "geosite-netflix",
+    "geosite-facebook",
+    "geosite-instagram",
+    "geosite-tiktok",
+    "geosite-jetbrains",
+    "geosite-spotify",
+    "geosite-disney",
+    "geosite-hbo",
+    "geosite-amazon",
+    "geosite-adobe",
+    "geosite-steam",
+    "geosite-category-pt@!cn",
+    "geosite-category-cryptocurrency",
+    "geoip-telegram",
+    "geoip-netflix",
+    "geoip-facebook",
+}
 
 
 def now_stamp():
@@ -225,7 +249,17 @@ def normalize_port(value):
 
 
 def normalize_bool(value):
-    return bool(value)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("1", "true", "yes", "on"):
+            return True
+        if lowered in ("0", "false", "no", "off"):
+            return False
+    if value in (0, 1):
+        return bool(value)
+    raise ValueError("Invalid boolean value")
 
 
 def normalize_number(value, default=None):
@@ -312,10 +346,10 @@ def normalize_node(raw):
                 brutal.pop("down_mbps", None)
     tls = outbound.get("tls")
     if isinstance(tls, dict):
-        tls["enabled"] = bool(tls.get("enabled", True))
+        tls["enabled"] = normalize_bool(tls.get("enabled", True))
         if "insecure" in tls:
             tls["insecure"] = normalize_bool(tls["insecure"])
-    return {"enabled": bool(raw.get("enabled", True)), "outbound": outbound}
+    return {"enabled": normalize_bool(raw.get("enabled", True)), "outbound": outbound}
 
 
 def normalize_nodes(nodes):
@@ -382,7 +416,7 @@ def extract_initial_manager_data(config):
         },
         "direct": direct or {"type": "direct", "tag": "direct"},
         "block": block or {"type": "block", "tag": "block"},
-        "fakeip": fakeip or {"tag": "fakeip-dns", "inet4_range": "28.0.0.0/8", "inet6_range": "2001:2::/64"},
+        "fakeip": {**{"tag": "fakeip-dns", "inet4_range": "28.0.0.0/8", "inet6_range": "2001:2::/64", "block_quic": True}, **fakeip},
         "ddns": {"dns": "local"},
     }
     return base, normalize_nodes(nodes), groups
@@ -418,13 +452,17 @@ def load_groups():
     groups.setdefault("ddns", {})
     groups["proxy"].setdefault("default", "Auto")
     groups["proxy"].setdefault("interrupt_exist_connections", True)
+    groups["proxy"]["interrupt_exist_connections"] = normalize_bool(groups["proxy"]["interrupt_exist_connections"])
     groups["auto"].setdefault("url", "https://www.gstatic.com/generate_204")
     groups["auto"].setdefault("interval", "30s")
     groups["auto"].setdefault("tolerance", 50)
     groups["auto"].setdefault("interrupt_exist_connections", True)
+    groups["auto"]["interrupt_exist_connections"] = normalize_bool(groups["auto"]["interrupt_exist_connections"])
     groups["fakeip"].setdefault("tag", "fakeip-dns")
     groups["fakeip"].setdefault("inet4_range", "28.0.0.0/8")
     groups["fakeip"].setdefault("inet6_range", "2001:2::/64")
+    groups["fakeip"].setdefault("block_quic", True)
+    groups["fakeip"]["block_quic"] = normalize_bool(groups["fakeip"]["block_quic"])
     if groups["ddns"].get("dns") not in ("local", "remote"):
         groups["ddns"]["dns"] = "local"
     return groups
@@ -443,6 +481,8 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
         raise ValueError("At least one node must be enabled")
     config = load_json(BASE_CONFIG_PATH, {})
     rewrite_custom_rule_paths(config, rule_dir)
+    ensure_managed_rule_sets(config)
+    remove_legacy_app_rule_sets(config)
     apply_portable_listeners(config)
     apply_cache_file_settings(config)
     apply_fakeip_settings(config, groups)
@@ -452,6 +492,7 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     apply_ddns_dns_settings(config, groups)
     apply_fakeip_route_rule(config, groups)
     apply_direct_speedtest_route(config)
+    apply_fakeip_quic_policy(config, groups)
     apply_route_final_policy(config)
     proxy_default = groups.get("proxy", {}).get("default", "Auto")
     if proxy_default not in {"Auto", *tags}:
@@ -461,7 +502,7 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
         "tag": "Proxy",
         "outbounds": ["Auto", *tags],
         "default": proxy_default,
-        "interrupt_exist_connections": bool(groups.get("proxy", {}).get("interrupt_exist_connections", True)),
+        "interrupt_exist_connections": normalize_bool(groups.get("proxy", {}).get("interrupt_exist_connections", True)),
     }
     auto = {
         "type": "urltest",
@@ -471,7 +512,7 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
         "interval": groups.get("auto", {}).get("interval", "30s"),
         "tolerance": groups.get("auto", {}).get("tolerance", 50),
         # Auto 切换节点时必须断开已有入站连接，否则旧连接会继续粘在失效节点上。
-        "interrupt_exist_connections": bool(groups.get("auto", {}).get("interrupt_exist_connections", True)),
+        "interrupt_exist_connections": normalize_bool(groups.get("auto", {}).get("interrupt_exist_connections", True)),
     }
     direct = groups.get("direct") or {"type": "direct", "tag": "direct"}
     block = groups.get("block") or {"type": "block", "tag": "block"}
@@ -520,6 +561,61 @@ def prune_managed_outbound_references(config, valid_tags):
 
 def apply_route_final_policy(config):
     config.setdefault("route", {})["final"] = "direct"
+
+
+def managed_binary_rule_set(tag, path):
+    return {"type": "local", "tag": tag, "format": "binary", "path": path}
+
+
+def ensure_managed_rule_sets(config):
+    route = config.setdefault("route", {})
+    rule_sets = route.setdefault("rule_set", [])
+    existing = {item.get("tag") for item in rule_sets if isinstance(item, dict)}
+    managed = [
+        managed_binary_rule_set("geosite-speedtest", "/etc/sing-box/rules/geosite/speedtest.srs"),
+    ]
+    for item in managed:
+        if item["tag"] in existing:
+            continue
+        # 路由规则引用的内置规则集必须在同一份配置里声明，避免旧安装升级后保存出不可启动配置。
+        rule_sets.append(item)
+
+
+def remove_legacy_rule_set_values(value):
+    if isinstance(value, list):
+        kept = [item for item in value if item not in LEGACY_APP_RULE_SETS]
+        if not kept:
+            return None
+        return kept[0] if len(kept) == 1 else kept
+    if value in LEGACY_APP_RULE_SETS:
+        return None
+    return value
+
+
+def remove_legacy_app_rule_sets(config):
+    route = config.setdefault("route", {})
+    route["rule_set"] = [
+        item
+        for item in route.get("rule_set", []) or []
+        if not (isinstance(item, dict) and item.get("tag") in LEGACY_APP_RULE_SETS)
+    ]
+    for section_name in ("dns", "route"):
+        rules = config.setdefault(section_name, {}).setdefault("rules", [])
+        cleaned = []
+        for rule in rules:
+            if not isinstance(rule, dict):
+                cleaned.append(rule)
+                continue
+            if "rule_set" not in rule:
+                cleaned.append(rule)
+                continue
+            updated = dict(rule)
+            updated["rule_set"] = remove_legacy_rule_set_values(updated.get("rule_set"))
+            if updated["rule_set"] is None:
+                continue
+            cleaned.append(updated)
+        # 旧版本曾把大量应用规则硬编码进 DNS/路由，维护成本高且会放大源失效影响；统一迁移到 geolocation 分流。
+        rules[:] = cleaned
 
 
 def remove_rule_set_value(value, target):
@@ -606,6 +702,45 @@ def apply_fakeip_route_rule(config, groups):
             insert_at = index + 1
             break
     rules.insert(insert_at, {"ip_cidr": [fakeip4, fakeip6], "outbound": "Proxy"})
+
+
+def apply_fakeip_quic_policy(config, groups):
+    fakeip = groups.get("fakeip", {})
+    fakeip4 = normalize_cidr(fakeip.get("inet4_range", "28.0.0.0/8"), "28.0.0.0/8")
+    fakeip6 = normalize_cidr(fakeip.get("inet6_range", "2001:2::/64"), "2001:2::/64")
+    fake_networks = {
+        "28.0.0.0/8",
+        "2001:2::/64",
+        fakeip4,
+        fakeip6,
+    }
+    rules = config.setdefault("route", {}).setdefault("rules", [])
+    rules[:] = [
+        rule
+        for rule in rules
+        if not (
+            isinstance(rule, dict)
+            and rule.get("network") == "udp"
+            and rule.get("port") == 443
+            and rule.get("outbound") == "block"
+            and isinstance(rule.get("ip_cidr"), list)
+            and any(str(item) in fake_networks for item in rule.get("ip_cidr", []))
+        )
+    ]
+    if not normalize_bool(fakeip.get("block_quic", True)):
+        return
+    insert_at = 0
+    for index, rule in enumerate(rules):
+        if (
+            isinstance(rule, dict)
+            and rule.get("outbound") == "Proxy"
+            and isinstance(rule.get("ip_cidr"), list)
+            and any(str(item) in {fakeip4, fakeip6} for item in rule.get("ip_cidr", []))
+        ):
+            insert_at = index
+            break
+    # 只拦 FakeIP 的 UDP/443，促使浏览器回落 TCP，避免 QUIC 长连接压住代理节点；真实 IP 的游戏 UDP 不受影响。
+    rules.insert(insert_at, {"network": "udp", "port": 443, "ip_cidr": [fakeip4, fakeip6], "outbound": "block"})
 
 
 def apply_cache_file_settings(config):
@@ -986,7 +1121,12 @@ def rule_update_summary(text):
             summary["updated"].append(message)
         elif "installed " in message and message not in summary["updated"]:
             summary["updated"].append(message)
-            if "geoip/cn.srs" in message or "geosite/cn.srs" in message or "geosite/geolocation-cn.srs" in message:
+            if (
+                "geoip/cn.srs" in message
+                or "geosite/cn.srs" in message
+                or "geosite/geolocation-cn.srs" in message
+                or "geosite/speedtest.srs" in message
+            ):
                 summary["requiredOk"] = True
         elif "keeping existing file" in message:
             summary["kept"].append(message)
@@ -996,6 +1136,9 @@ def rule_update_summary(text):
             summary["errors"].append(message)
         elif "timed out" in message:
             summary["errors"].append(message)
+        elif "skipped this update safely" in message:
+            summary["final"] = message
+            summary["requiredOk"] = True
         elif "sing-box rule sets updated" in message:
             summary["final"] = message
     for key in ("updated", "kept", "skipped", "errors"):
@@ -1824,7 +1967,7 @@ def normalize_payload_groups(raw_groups, nodes=None):
             groups["proxy"]["default"] = str(proxy.get("default", groups["proxy"]["default"]))
             if groups["proxy"]["default"] not in {"Auto", *tags}:
                 raise ValueError(f"Unknown proxy default: {groups['proxy']['default']}")
-            groups["proxy"]["interrupt_exist_connections"] = bool(
+            groups["proxy"]["interrupt_exist_connections"] = normalize_bool(
                 proxy.get("interrupt_exist_connections", groups["proxy"]["interrupt_exist_connections"])
             )
         auto = raw_groups.get("auto")
@@ -1832,7 +1975,7 @@ def normalize_payload_groups(raw_groups, nodes=None):
             groups["auto"]["url"] = normalize_url(auto.get("url", groups["auto"]["url"]), groups["auto"]["url"])
             groups["auto"]["interval"] = str(auto.get("interval", groups["auto"]["interval"])).strip() or groups["auto"]["interval"]
             groups["auto"]["tolerance"] = normalize_non_negative_number(auto.get("tolerance", groups["auto"]["tolerance"]), 50)
-            groups["auto"]["interrupt_exist_connections"] = bool(
+            groups["auto"]["interrupt_exist_connections"] = normalize_bool(
                 auto.get("interrupt_exist_connections", groups["auto"].get("interrupt_exist_connections", True))
             )
         fakeip = raw_groups.get("fakeip")
@@ -1847,6 +1990,7 @@ def normalize_payload_groups(raw_groups, nodes=None):
                 groups["fakeip"]["inet6_range"],
                 strict=True,
             )
+            groups["fakeip"]["block_quic"] = normalize_bool(fakeip.get("block_quic", groups["fakeip"].get("block_quic", True)))
         ddns = raw_groups.get("ddns")
         if isinstance(ddns, dict):
             mode = str(ddns.get("dns", groups["ddns"].get("dns", "local"))).strip()

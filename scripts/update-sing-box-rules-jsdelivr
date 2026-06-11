@@ -6,6 +6,7 @@ CONFIG="/etc/sing-box/config.json"
 SING_BOX="/usr/local/bin/sing-box"
 SERVICE="sing-box.service"
 RESTART_SERVICE="${RULE_UPDATE_RESTART:-1}"
+FORCE_UPDATE="${RULE_UPDATE_FORCE:-0}"
 LOCK_FILE="/run/update-sing-box-rules-jsdelivr.lock"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -19,24 +20,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
-MIRRORS=(
+DEFAULT_MIRRORS=(
+  "https://raw.githubusercontent.com"
   "https://scg.jgaga.tk/https://raw.githubusercontent.com"
   "https://gh-proxy.com/https://raw.githubusercontent.com"
   "https://gh.llkk.cc/https://raw.githubusercontent.com"
   "https://cdn.jsdelivr.net/gh"
   "https://fastly.jsdelivr.net/gh"
 )
+IFS=" " read -r -a MIRRORS <<< "${RULE_UPDATE_MIRRORS:-${DEFAULT_MIRRORS[*]}}"
 
 GEOSITE=(
-  category-ai-chat-!cn
-  youtube google telegram github cloudflare netflix facebook instagram tiktok
-  speedtest jetbrains spotify disney hbo amazon adobe steam
-  category-pt@!cn category-cryptocurrency geolocation-!cn
+  # 只下载运行配置真实引用的规则集；未引用的应用规则会增加定时更新噪音和维护成本。
+  speedtest geolocation-!cn
   cn icloud@cn apple@cn geolocation-cn
 )
 
 GEOIP_REQUIRED=(cn)
-GEOIP_OPTIONAL=(telegram netflix facebook)
+LEGACY_UNUSED_GEOSITE=(
+  category-ai-chat-!cn youtube google telegram github cloudflare netflix facebook instagram tiktok
+  jetbrains spotify disney hbo amazon adobe steam category-pt@!cn category-cryptocurrency
+)
+LEGACY_UNUSED_GEOIP=(telegram netflix facebook)
 UPDATED_FILES=()
 BACKUP_DIR="$TMP_DIR/backup"
 NEW_DIR="$TMP_DIR/new"
@@ -49,6 +54,17 @@ rule_url() {
   else
     echo "$mirror/${repo}@${branch}/${subdir}-${name}.srs"
   fi
+}
+
+required_files_present() {
+  local name
+  for name in "${GEOSITE[@]}"; do
+    [ -s "$BASE_DIR/geosite/$name.srs" ] || return 1
+  done
+  for name in "${GEOIP_REQUIRED[@]}"; do
+    [ -s "$BASE_DIR/geoip/$name.srs" ] || return 1
+  done
+  return 0
 }
 
 SELECTED_MIRRORS=()
@@ -121,10 +137,77 @@ restore_backups() {
   done
 }
 
+backup_existing_rule() {
+  local rel="$1" dst="$BASE_DIR/$rel"
+  mkdir -p "$(dirname "$BACKUP_DIR/$rel")"
+  if [ -f "$dst" ]; then
+    cp -a "$dst" "$BACKUP_DIR/$rel"
+  fi
+  RESTORE_FILES+=("$rel")
+}
+
+prune_legacy_unused_rules() {
+  local name rel path
+  for name in "${LEGACY_UNUSED_GEOSITE[@]}"; do
+    rel="geosite/$name.srs"
+    path="$BASE_DIR/$rel"
+    if [ -f "$path" ]; then
+      backup_existing_rule "$rel"
+      rm -f "$path"
+      echo "removed legacy unused $rel"
+    fi
+  done
+  for name in "${LEGACY_UNUSED_GEOIP[@]}"; do
+    rel="geoip/$name.srs"
+    path="$BASE_DIR/$rel"
+    if [ -f "$path" ]; then
+      backup_existing_rule "$rel"
+      rm -f "$path"
+      echo "removed legacy unused $rel"
+    fi
+  done
+}
+
+finish_checked_update() {
+  local restart_reason="${1:-sing-box rule sets updated}"
+  prune_legacy_unused_rules
+
+  if ! "$SING_BOX" check -c "$CONFIG"; then
+    echo "ERROR: sing-box config check failed after rule update; rolling back rule files" >&2
+    restore_backups
+    "$SING_BOX" check -c "$CONFIG" || true
+    exit 1
+  fi
+
+  if [ "$RESTART_SERVICE" = "0" ]; then
+    echo "$restart_reason and config checked. Service restart skipped."
+    exit 0
+  fi
+
+  if ! systemctl restart "$SERVICE"; then
+    echo "ERROR: sing-box restart failed after rule update; rolling back rule files" >&2
+    restore_backups
+    "$SING_BOX" check -c "$CONFIG" || true
+    systemctl restart "$SERVICE" || true
+    systemctl is-active --quiet "$SERVICE" || exit 1
+    exit 1
+  fi
+
+  systemctl is-active --quiet "$SERVICE"
+  echo "$restart_reason and service restarted safely."
+  exit 0
+}
+
 fail=0
 if ! select_mirrors; then
-  echo "WARN: no rule mirror passed quick probe with current DNS; using configured mirrors with short timeouts" >&2
-  echo "WARN: system DNS was not changed; check /etc/resolv.conf or Cloud-Init DNS if downloads fail" >&2
+  if [ "$FORCE_UPDATE" != "1" ] && required_files_present; then
+    # 定时更新不能因为外部镜像慢而长时间阻塞；已有规则可用时保留现状，下次再试。
+    echo "WARN: no rule mirror passed quick probe; existing required rule files are present, skipped this update safely" >&2
+    echo "WARN: set RULE_UPDATE_FORCE=1 or RULE_UPDATE_MIRRORS='https://example/...' to force a retry" >&2
+    finish_checked_update "sing-box rule update skipped safely"
+  fi
+  echo "WARN: no rule mirror passed quick probe; forcing configured mirrors because required rule files are missing" >&2
+  echo "WARN: system DNS was not changed; check /etc/resolv.conf, firewall, or RULE_UPDATE_MIRRORS if downloads fail" >&2
   SELECTED_MIRRORS=("${MIRRORS[@]}")
 fi
 for name in "${GEOSITE[@]}"; do
@@ -133,10 +216,6 @@ done
 for name in "${GEOIP_REQUIRED[@]}"; do
   fetch_one "SagerNet/sing-geoip" "rule-set" "geoip" "$name" 1 || fail=1
 done
-for name in "${GEOIP_OPTIONAL[@]}"; do
-  fetch_one "SagerNet/sing-geoip" "rule-set" "geoip" "$name" 0 || true
-done
-
 if [ "$fail" -ne 0 ]; then
   exit "$fail"
 fi
@@ -155,26 +234,4 @@ for entry in "${UPDATED_FILES[@]}"; do
   echo "installed $rel"
 done
 
-if ! "$SING_BOX" check -c "$CONFIG"; then
-  echo "ERROR: sing-box config check failed after rule update; rolling back rule files" >&2
-  restore_backups
-  "$SING_BOX" check -c "$CONFIG" || true
-  exit 1
-fi
-
-if [ "$RESTART_SERVICE" = "0" ]; then
-  echo "sing-box rule sets updated and config checked. Service restart skipped."
-  exit 0
-fi
-
-if ! systemctl restart "$SERVICE"; then
-  echo "ERROR: sing-box restart failed after rule update; rolling back rule files" >&2
-  restore_backups
-  "$SING_BOX" check -c "$CONFIG" || true
-  systemctl restart "$SERVICE" || true
-  systemctl is-active --quiet "$SERVICE" || exit 1
-  exit 1
-fi
-
-systemctl is-active --quiet "$SERVICE"
-echo "sing-box rule sets updated and service restarted safely."
+finish_checked_update "sing-box rule sets updated"
