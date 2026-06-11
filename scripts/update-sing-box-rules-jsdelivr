@@ -20,15 +20,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
-DEFAULT_MIRRORS=(
+DEFAULT_RAW_MIRRORS=(
   "https://raw.githubusercontent.com"
   "https://scg.jgaga.tk/https://raw.githubusercontent.com"
   "https://gh-proxy.com/https://raw.githubusercontent.com"
   "https://gh.llkk.cc/https://raw.githubusercontent.com"
+)
+DEFAULT_CDN_MIRRORS=(
   "https://cdn.jsdelivr.net/gh"
   "https://fastly.jsdelivr.net/gh"
 )
-IFS=" " read -r -a MIRRORS <<< "${RULE_UPDATE_MIRRORS:-${DEFAULT_MIRRORS[*]}}"
+IFS=" " read -r -a RAW_MIRRORS <<< "${RULE_UPDATE_RAW_MIRRORS:-${DEFAULT_RAW_MIRRORS[*]}}"
+IFS=" " read -r -a CDN_MIRRORS <<< "${RULE_UPDATE_CDN_MIRRORS:-${DEFAULT_CDN_MIRRORS[*]}}"
 
 GEOSITE=(
   # 只下载运行配置真实引用的规则集；未引用的应用规则会增加定时更新噪音和维护成本。
@@ -47,13 +50,31 @@ BACKUP_DIR="$TMP_DIR/backup"
 NEW_DIR="$TMP_DIR/new"
 mkdir -p "$BACKUP_DIR" "$NEW_DIR"
 
-rule_url() {
-  local mirror="$1" repo="$2" branch="$3" subdir="$4" name="$5"
-  if [[ "$mirror" == *raw.githubusercontent.com ]]; then
-    echo "$mirror/${repo}/${branch}/${subdir}-${name}.srs"
-  else
-    echo "$mirror/${repo}@${branch}/${subdir}-${name}.srs"
-  fi
+source_url() {
+  local mirror="$1" source="$2" subdir="$3" name="$4"
+  case "$source" in
+    sagernet-geosite)
+      if [[ "$mirror" == *raw.githubusercontent.com ]]; then
+        echo "$mirror/SagerNet/sing-geosite/rule-set/geosite-${name}.srs"
+      else
+        echo "$mirror/SagerNet/sing-geosite@rule-set/geosite-${name}.srs"
+      fi
+      ;;
+    sagernet-geoip)
+      if [[ "$mirror" == *raw.githubusercontent.com ]]; then
+        echo "$mirror/SagerNet/sing-geoip/rule-set/geoip-${name}.srs"
+      else
+        echo "$mirror/SagerNet/sing-geoip@rule-set/geoip-${name}.srs"
+      fi
+      ;;
+    metacubex)
+      if [[ "$mirror" == *raw.githubusercontent.com ]]; then
+        echo "$mirror/MetaCubeX/meta-rules-dat/sing/geo/${subdir}/${name}.srs"
+      else
+        echo "$mirror/MetaCubeX/meta-rules-dat@sing/geo/${subdir}/${name}.srs"
+      fi
+      ;;
+  esac
 }
 
 required_files_present() {
@@ -71,8 +92,8 @@ SELECTED_MIRRORS=()
 select_mirrors() {
   local mirror url probe="$TMP_DIR/probe.srs"
   SELECTED_MIRRORS=()
-  for mirror in "${MIRRORS[@]}"; do
-    url="$(rule_url "$mirror" "SagerNet/sing-geosite" "rule-set" "geosite" "cn")"
+  for mirror in "${RAW_MIRRORS[@]}" "${CDN_MIRRORS[@]}"; do
+    url="$(source_url "$mirror" "sagernet-geosite" "geosite" "cn")"
     if curl -4 -fsSL --connect-timeout 2 --max-time 5 "$url" -o "$probe" 2>"$TMP_DIR/probe.log" \
       && [ -s "$probe" ] && [ "$(wc -c < "$probe")" -gt 16 ]; then
       SELECTED_MIRRORS+=("$mirror")
@@ -89,28 +110,30 @@ select_mirrors() {
 }
 
 fetch_one() {
-  local repo="$1" branch="$2" subdir="$3" name="$4" required="${5:-1}"
+  local subdir="$1" name="$2" required="${3:-1}"
   local tmp="$NEW_DIR/${subdir}-${name}.srs"
   local current="$BASE_DIR/$subdir/${name}.srs"
-  local mirror url
+  local mirror source url
   mkdir -p "$NEW_DIR" "$BASE_DIR/$subdir"
   if [ "$required" = "0" ] && [ ! -s "$current" ]; then
     echo "optional ${subdir}/${name}.srs unavailable; skipped safely"
     return 0
   fi
   for mirror in "${SELECTED_MIRRORS[@]}"; do
-    url="$(rule_url "$mirror" "$repo" "$branch" "$subdir" "$name")"
-    curl_flags=(-4 -fsSL --connect-timeout 2 --max-time 6)
-    if [ "$required" = "0" ]; then
-      curl_flags=(-4 -fsSL --silent --show-error --connect-timeout 2 --max-time 5)
-    fi
-    if curl "${curl_flags[@]}" "$url" -o "$tmp" 2>"$TMP_DIR/curl-${subdir}-${name}.log"; then
-      if [ -s "$tmp" ] && [ "$(wc -c < "$tmp")" -gt 16 ]; then
-        echo "downloaded ${subdir}/${name}.srs via ${mirror}"
-        UPDATED_FILES+=("$subdir/$name.srs:$tmp")
-        return 0
+    for source in "sagernet-${subdir}" "metacubex"; do
+      url="$(source_url "$mirror" "$source" "$subdir" "$name")"
+      curl_flags=(-4 -fsSL --connect-timeout 2 --max-time 6)
+      if [ "$required" = "0" ]; then
+        curl_flags=(-4 -fsSL --silent --show-error --connect-timeout 2 --max-time 5)
       fi
-    fi
+      if curl "${curl_flags[@]}" "$url" -o "$tmp" 2>"$TMP_DIR/curl-${subdir}-${name}.log"; then
+        if [ -s "$tmp" ] && [ "$(wc -c < "$tmp")" -gt 16 ]; then
+          echo "downloaded ${subdir}/${name}.srs via ${source} ${mirror}"
+          UPDATED_FILES+=("$subdir/$name.srs:$tmp")
+          return 0
+        fi
+      fi
+    done
   done
   if [ -s "$current" ]; then
     echo "WARN: update failed for ${subdir}/${name}.srs; keeping existing file" >&2
@@ -203,18 +226,18 @@ if ! select_mirrors; then
   if [ "$FORCE_UPDATE" != "1" ] && required_files_present; then
     # 定时更新不能因为外部镜像慢而长时间阻塞；已有规则可用时保留现状，下次再试。
     echo "WARN: no rule mirror passed quick probe; existing required rule files are present, skipped this update safely" >&2
-    echo "WARN: set RULE_UPDATE_FORCE=1 or RULE_UPDATE_MIRRORS='https://example/...' to force a retry" >&2
+    echo "WARN: set RULE_UPDATE_FORCE=1, RULE_UPDATE_RAW_MIRRORS, or RULE_UPDATE_CDN_MIRRORS to force a retry" >&2
     finish_checked_update "sing-box rule update skipped safely"
   fi
   echo "WARN: no rule mirror passed quick probe; forcing configured mirrors because required rule files are missing" >&2
-  echo "WARN: system DNS was not changed; check /etc/resolv.conf, firewall, or RULE_UPDATE_MIRRORS if downloads fail" >&2
-  SELECTED_MIRRORS=("${MIRRORS[@]}")
+  echo "WARN: system DNS was not changed; check /etc/resolv.conf, firewall, RULE_UPDATE_RAW_MIRRORS, or RULE_UPDATE_CDN_MIRRORS if downloads fail" >&2
+  SELECTED_MIRRORS=("${RAW_MIRRORS[@]}" "${CDN_MIRRORS[@]}")
 fi
 for name in "${GEOSITE[@]}"; do
-  fetch_one "SagerNet/sing-geosite" "rule-set" "geosite" "$name" 1 || fail=1
+  fetch_one "geosite" "$name" 1 || fail=1
 done
 for name in "${GEOIP_REQUIRED[@]}"; do
-  fetch_one "SagerNet/sing-geoip" "rule-set" "geoip" "$name" 1 || fail=1
+  fetch_one "geoip" "$name" 1 || fail=1
 done
 if [ "$fail" -ne 0 ]; then
   exit "$fail"
