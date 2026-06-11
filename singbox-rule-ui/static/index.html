@@ -112,9 +112,15 @@
               <span data-i18n="fakeipV6">IPv6 range</span>
               <input id="fakeipV6" type="text" autocomplete="off" placeholder="2001:2::/64" />
             </label>
-            <label class="switchline wide-field">
-              <input id="fakeipBlockQuic" type="checkbox" />
-              <span data-i18n="fakeipBlockQuic">Block FakeIP QUIC</span>
+            <label class="switch-card wide-field">
+              <span class="switch-control">
+                <input id="fakeipBlockQuic" type="checkbox" />
+                <span class="switch-slider" aria-hidden="true"></span>
+              </span>
+              <span class="switch-copy">
+                <strong data-i18n="fakeipBlockQuic">Block FakeIP QUIC</strong>
+                <small data-i18n="fakeipBlockQuicHelp">Force FakeIP QUIC back to TCP to keep proxy latency stable.</small>
+              </span>
             </label>
           </section>
 
