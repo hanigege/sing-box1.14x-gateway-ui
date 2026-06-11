@@ -392,6 +392,8 @@ let editingNodeTag = null;
 let editingNodeSnapshot = "";
 let nodeEditChanged = false;
 let metaUpdatedAt = null;
+let metaRefreshInFlight = false;
+let delayRefreshInFlight = false;
 const actionButtonTimers = {};
 
 const $ = (id) => document.getElementById(id);
@@ -523,6 +525,8 @@ async function load() {
 
 async function refreshMeta() {
   if (!token || $("app").classList.contains("hidden")) return;
+  if (metaRefreshInFlight) return;
+  metaRefreshInFlight = true;
   try {
     const latest = await api("/api/state");
     state.meta = latest.meta || state.meta;
@@ -530,6 +534,8 @@ async function refreshMeta() {
     renderMeta();
   } catch (error) {
     // A missed telemetry refresh should never interrupt rule or node editing.
+  } finally {
+    metaRefreshInFlight = false;
   }
 }
 
@@ -1359,6 +1365,8 @@ function toggleNode(tag, enabled) {
 }
 
 async function refreshDelays() {
+  if (delayRefreshInFlight) return;
+  delayRefreshInFlight = true;
   setBusy(true);
   setStatus(t("testingDelay"));
   try {
@@ -1369,6 +1377,7 @@ async function refreshDelays() {
   } catch (error) {
     setStatus(error.message, "bad");
   } finally {
+    delayRefreshInFlight = false;
     setBusy(false);
   }
 }

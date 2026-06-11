@@ -450,6 +450,7 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     apply_greylist_dns_fakeip(config)
     apply_inbound_dns_fakeip_fallback(config)
     apply_ddns_dns_settings(config, groups)
+    apply_direct_speedtest_route(config)
     apply_fakeip_route_rule(config, groups)
     apply_route_final_policy(config)
     proxy_default = groups.get("proxy", {}).get("default", "Auto")
@@ -519,6 +520,49 @@ def prune_managed_outbound_references(config, valid_tags):
 
 def apply_route_final_policy(config):
     config.setdefault("route", {})["final"] = "direct"
+
+
+def remove_rule_set_value(value, target):
+    if value == target:
+        return None
+    if isinstance(value, list):
+        kept = [item for item in value if item != target]
+        if not kept:
+            return None
+        return kept
+    return value
+
+
+def apply_direct_speedtest_route(config):
+    rules = config.setdefault("route", {}).setdefault("rules", [])
+    direct_rule = {"rule_set": "geosite-speedtest", "outbound": "direct"}
+    cleaned = []
+    has_direct = False
+    for rule in rules:
+        if not isinstance(rule, dict):
+            cleaned.append(rule)
+            continue
+        if rule.get("rule_set") == "geosite-speedtest" and rule.get("outbound") == "direct":
+            has_direct = True
+            cleaned.append(rule)
+            continue
+        if rule.get("outbound") == "Proxy":
+            updated = dict(rule)
+            updated["rule_set"] = remove_rule_set_value(updated.get("rule_set"), "geosite-speedtest")
+            if updated.get("rule_set") is None:
+                continue
+            cleaned.append(updated)
+            continue
+        cleaned.append(rule)
+    rules[:] = cleaned
+    if has_direct:
+        return
+    insert_at = 0
+    for index, rule in enumerate(rules):
+        if isinstance(rule, dict) and rule.get("rule_set") in (CUSTOM_TAGS["whitelist"], CUSTOM_TAGS["ddns"], CUSTOM_TAGS["greylist"]):
+            insert_at = index + 1
+    # 测速流量会主动打满带宽，不能默认压到代理节点上，否则会拖垮游戏和实时业务。
+    rules.insert(insert_at, direct_rule)
 
 
 def apply_fakeip_route_rule(config, groups):

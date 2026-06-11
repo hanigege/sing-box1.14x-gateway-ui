@@ -227,6 +227,8 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
                 {"rule_set": "custom-whitelist", "outbound": "direct"},
                 {"rule_set": "custom-ddns", "outbound": "direct"},
                 {"rule_set": "custom-greylist", "outbound": "Proxy"},
+                # 测速流量会主动打满带宽，默认直连，避免压垮代理节点影响游戏和实时业务。
+                {"rule_set": ["geosite-speedtest"], "outbound": "direct"},
                 {"ip_cidr": [fake4, fake6], "outbound": "Proxy"},
                 {"ip_is_private": True, "outbound": "direct"},
                 {"rule_set": ["geosite-geolocation-!cn"], "outbound": "Proxy"},
