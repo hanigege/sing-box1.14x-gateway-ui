@@ -2513,6 +2513,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if target.suffix == ".html":
+            self.send_header("Cache-Control", "no-store")
+        elif target.suffix in {".js", ".css"}:
+            self.send_header("Cache-Control", "no-cache, must-revalidate")
         self.end_headers()
         self.wfile.write(body)
 

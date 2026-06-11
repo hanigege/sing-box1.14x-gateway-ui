@@ -510,6 +510,7 @@ select {
 .maintenance-rows {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  align-items: start;
   gap: 10px;
 }
 
