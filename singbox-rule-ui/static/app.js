@@ -202,14 +202,15 @@ const translations = {
       domain_suffix: { use: "match this domain and all subdomains", example: "example.com" },
       domain_keyword: { use: "match domains containing this word", example: "google" },
       domain_regex: { use: "match domains with a pattern, such as api1 or api23", example: "^api[0-9]+\\.example\\.com$" },
-      ip_cidr: { use: "match a real destination IP range", example: "203.0.113.0/24" },
+      ip_cidr: { use: "match a real destination IP range; for Greylist, the upstream router must also route that IPv4/IPv6 CIDR to sing-box", example: "203.0.113.0/24" },
     },
     listTypeHelp: {
       whitelist: "Direct: suffix is usually enough; IP/CIDR is useful for game servers and other traffic that no longer carries a domain.",
       blacklist: "Block: suffix blocks a site family; IP/CIDR blocks known destination ranges.",
-      greylist: "Proxy: suffix is safest; IP/CIDR can force known destination ranges through Proxy.",
+      greylist: "Proxy: suffix is safest. IP/CIDR can capture literal IP traffic into TProxy, but RouterOS/upstream routing must send the same IPv4 CIDR to sing-box-v4 or IPv6 CIDR to sing-box-v6.",
       ddns: "DDNS only needs exact host or suffix. Keyword and regex are hidden to avoid accidental broad matches.",
     },
+    greylistRouteNotice: "Proxy: suffix is safest. IP/CIDR requires two sides: this UI adds the CIDR to sing-box TProxy capture, and RouterOS/upstream routing must also send that exact IPv4/IPv6 CIDR to the sing-box gateway or the policy table that uses it. Protected LAN and node server ranges are rejected.",
     lists: {
       whitelist: { title: "Whitelist", note: "Direct routing" },
       blacklist: { title: "Blacklist", note: "Blocked routing" },
@@ -430,14 +431,15 @@ const translations = {
       domain_suffix: { use: "匹配该域名及其所有子域名", example: "example.com" },
       domain_keyword: { use: "域名里包含这个关键词就匹配", example: "google" },
       domain_regex: { use: "按一条表达式匹配有规律的域名，如 api1、api23", example: "^api[0-9]+\\.example\\.com$" },
-      ip_cidr: { use: "匹配真实目标 IP 网段", example: "203.0.113.0/24" },
+      ip_cidr: { use: "匹配真实目标 IP 网段；灰名单使用 IP/CIDR 时，上游路由器也必须把同一段 IPv4/IPv6 送到 sing-box", example: "203.0.113.0/24" },
     },
     listTypeHelp: {
       whitelist: "白名单用于强制直连；游戏服务器这类进入连接阶段只剩 IP 的流量，可以用 IP/CIDR。",
       blacklist: "黑名单用于强制阻断；后缀适合整站，IP/CIDR 适合已知目标网段。",
-      greylist: "灰名单用于强制代理；后缀最稳，IP/CIDR 可把已知目标网段送入代理。",
+      greylist: "灰名单用于强制代理；后缀最稳。IP/CIDR 可捕获字面量 IP 流量进 TProxy，但 RouterOS/上游路由也必须把同一段 IPv4 指到 sing-box-v4、IPv6 指到 sing-box-v6。",
       ddns: "DDNS 只保留完整域名和域名后缀；关键词/正则容易误伤，已隐藏。",
     },
+    greylistRouteNotice: "灰名单用于强制代理；后缀最稳。IP/CIDR 需要两边同时配置：这里会把该网段加入 sing-box TProxy 捕获，RouterOS/上游路由也必须把同一段 IPv4/IPv6 指向 sing-box 网关，或指向使用该网关的策略路由表。内网和节点服务器网段会被后端拒绝。",
     lists: {
       whitelist: { title: "白名单", note: "强制直连" },
       blacklist: { title: "黑名单", note: "强制阻断" },
@@ -1396,7 +1398,8 @@ function renderMatchHelp() {
   const title = document.createElement("strong");
   title.textContent = t("matchHelp");
   const listNote = document.createElement("p");
-  listNote.textContent = translations[lang].listTypeHelp[active];
+  listNote.className = "route-notice";
+  listNote.textContent = active === "greylist" ? translations[lang].greylistRouteNotice : translations[lang].listTypeHelp[active];
   const examples = document.createElement("div");
   examples.className = "match-examples";
   for (const type of allowedEntryTypes()) {
@@ -1409,7 +1412,8 @@ function renderMatchHelp() {
     item.append(label, detail);
     examples.appendChild(item);
   }
-  box.append(title, listNote, examples);
+  box.append(title, listNote);
+  box.appendChild(examples);
   return box;
 }
 

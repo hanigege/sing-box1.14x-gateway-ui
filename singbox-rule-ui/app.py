@@ -236,6 +236,19 @@ def normalize_list_entries(name, entries):
     return normalized
 
 
+def validate_greylist_ip_cidrs(entries, nodes=None, groups=None):
+    protected = protected_tproxy_networks(nodes=nodes, groups=groups)
+    for item in entries:
+        if item.get("type") != "ip_cidr":
+            continue
+        network = ipaddress.ip_network(item["value"], strict=False)
+        for protected_network in protected:
+            if network.version != protected_network.version:
+                continue
+            if network.subnet_of(protected_network) or network.overlaps(protected_network):
+                raise ValueError(f"Greylist IP/CIDR would capture protected network: {network}")
+
+
 def normalize_tag(value):
     tag = str(value or "").strip()
     if not re.match(r"^[A-Za-z0-9_.@-]{1,64}$", tag):
@@ -506,7 +519,7 @@ def enabled_node_tags(nodes):
     return [node["outbound"]["tag"] for node in nodes if node.get("enabled", True)]
 
 
-def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
+def render_config(nodes=None, groups=None, rule_dir=RULE_DIR, normalized_lists=None):
     ensure_manager_data()
     nodes = normalize_nodes(nodes if nodes is not None else load_nodes())
     groups = groups or load_groups()
@@ -1620,6 +1633,56 @@ def outbound_server_ip_networks(nodes=None):
     return networks
 
 
+def protected_tproxy_networks(nodes=None, groups=None):
+    iface = first_default_interface()
+    protected = [
+        "0.0.0.0/8",
+        "10.0.0.0/8",
+        "100.64.0.0/10",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "224.0.0.0/4",
+        "240.0.0.0/4",
+        "::/128",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10",
+        "ff00::/8",
+    ]
+    protected.extend(current_ipv4_prefixes(iface))
+    protected.extend(current_ipv6_prefixes(iface))
+    # 节点服务器地址绝不能被灰名单 IP 捕获，否则连接代理节点本身会被再次送进 TProxy 形成回环。
+    protected.extend(outbound_server_ip_networks(nodes))
+    networks = []
+    for item in protected:
+        try:
+            networks.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            continue
+    return networks
+
+
+def tproxy_proxy_ip_networks(nodes=None, groups=None, normalized_lists=None):
+    protected = protected_tproxy_networks(nodes=nodes, groups=groups)
+    networks = []
+    entries = (normalized_lists or {}).get("greylist") if normalized_lists is not None else read_entries("greylist")
+    for entry in entries or []:
+        if entry.get("type") != "ip_cidr":
+            continue
+        try:
+            network = ipaddress.ip_network(entry["value"], strict=False)
+        except ValueError:
+            continue
+        # 灰名单 IP/CIDR 只用于捕获明确外部目标；内网、本机前缀和节点服务器 IP 必须自动排除，避免误代理和回环。
+        if any(network.version == item.version and (network.subnet_of(item) or network.overlaps(item)) for item in protected):
+            continue
+        networks.append(network)
+    collapsed = sorted(ipaddress.collapse_addresses(networks), key=lambda net: (net.version, int(net.network_address), net.prefixlen))
+    return [str(net) for net in collapsed]
+
+
 def collapse_network_strings(items):
     networks = []
     for item in items:
@@ -1631,46 +1694,24 @@ def collapse_network_strings(items):
     return [str(net) for net in collapsed]
 
 
-def tproxy_bypass_sets(nodes=None, groups=None):
+def tproxy_bypass_sets(nodes=None, groups=None, normalized_lists=None):
     iface = first_default_interface()
     fakeip = (groups or load_groups()).get("fakeip", {})
     fakeip4 = normalize_cidr(fakeip.get("inet4_range", "28.0.0.0/8"), "28.0.0.0/8")
     fakeip6 = normalize_cidr(fakeip.get("inet6_range", "2001:2::/64"), "2001:2::/64")
-    bypass4 = [
-        "0.0.0.0/8",
-        "10.0.0.0/8",
-        "100.64.0.0/10",
-        "127.0.0.0/8",
-        "169.254.0.0/16",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "224.0.0.0/4",
-        "240.0.0.0/4",
-    ]
-    bypass6 = [
-        "::/128",
-        "::1/128",
-        "fc00::/7",
-        "fe80::/10",
-        "ff00::/8",
-    ]
-    for item in current_ipv4_prefixes(iface):
-        if item not in bypass4:
-            bypass4.append(item)
-    for item in current_ipv6_prefixes(iface):
-        if item not in bypass6:
-            bypass6.append(item)
+    protected = [str(item) for item in protected_tproxy_networks(nodes=nodes, groups=groups)]
+    bypass4 = [item for item in protected if ":" not in item]
+    bypass6 = [item for item in protected if ":" in item]
     node_networks = outbound_server_ip_networks(nodes)
-    for item in node_networks:
-        target = bypass6 if ":" in item else bypass4
-        if item not in target:
-            target.append(item)
+    proxy_networks = tproxy_proxy_ip_networks(nodes=nodes, groups=groups, normalized_lists=normalized_lists)
     return {
         "interface": iface,
         "bypass4": collapse_network_strings(bypass4),
         "bypass6": collapse_network_strings(bypass6),
         "fakeip4": fakeip4,
         "fakeip6": fakeip6,
+        "proxy4": collapse_network_strings(["91.108.4.0/22", "91.108.8.0/22", "91.108.12.0/22", "91.108.16.0/22", "91.108.20.0/22", "91.108.56.0/22", "95.161.64.0/20", "149.154.160.0/20", *[item for item in proxy_networks if ":" not in item]]),
+        "proxy6": collapse_network_strings(["2001:67c:4e8::/48", "2001:b28:f23c::/47", "2001:b28:f23f::/48", *[item for item in proxy_networks if ":" in item]]),
         "nodeServerIpNetworks": node_networks,
         "nodeServers": resolved_outbound_servers(nodes, groups),
     }
@@ -1680,13 +1721,15 @@ def format_nft_elements(items, indent="      "):
     return ",\n".join(f"{indent}{item}" for item in items)
 
 
-def render_tproxy_script(nodes=None, groups=None):
-    sets = tproxy_bypass_sets(nodes=nodes, groups=groups)
+def render_tproxy_script(nodes=None, groups=None, normalized_lists=None):
+    sets = tproxy_bypass_sets(nodes=nodes, groups=groups, normalized_lists=normalized_lists)
     iface = sets["interface"]
     if not iface:
         raise ValueError("Cannot detect default network interface")
     bypass4 = format_nft_elements(sets["bypass4"])
     bypass6 = format_nft_elements(sets["bypass6"])
+    proxy4 = format_nft_elements(sets["proxy4"])
+    proxy6 = format_nft_elements(sets["proxy6"])
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
@@ -1739,14 +1782,7 @@ table inet singbox_tproxy {{
     type ipv4_addr
     flags interval
     elements = {{
-      91.108.4.0/22,
-      91.108.8.0/22,
-      91.108.12.0/22,
-      91.108.16.0/22,
-      91.108.20.0/22,
-      91.108.56.0/22,
-      95.161.64.0/20,
-      149.154.160.0/20
+{proxy4}
     }}
   }}
 
@@ -1754,9 +1790,7 @@ table inet singbox_tproxy {{
     type ipv6_addr
     flags interval
     elements = {{
-      2001:67c:4e8::/48,
-      2001:b28:f23c::/47,
-      2001:b28:f23f::/48
+{proxy6}
     }}
   }}
 
@@ -1879,9 +1913,9 @@ def render_tproxy_sysctl(interface):
     )
 
 
-def sync_tproxy(nodes=None, groups=None):
-    script = render_tproxy_script(nodes=nodes, groups=groups)
-    sets = tproxy_bypass_sets(nodes=nodes, groups=groups)
+def sync_tproxy(nodes=None, groups=None, normalized_lists=None):
+    script = render_tproxy_script(nodes=nodes, groups=groups, normalized_lists=normalized_lists)
+    sets = tproxy_bypass_sets(nodes=nodes, groups=groups, normalized_lists=normalized_lists)
     with tempfile.TemporaryDirectory(prefix="tproxy-sync-") as temp_name:
         temp_dir = Path(temp_name)
         script_path = temp_dir / "sing-box-tproxy-setup"
@@ -2298,11 +2332,16 @@ def write_rule_files(target_dir, normalized_lists):
 
 def staged_check(normalized_lists, nodes=None, groups=None):
     ensure_dirs()
+    try:
+        validate_greylist_ip_cidrs(normalized_lists.get("greylist", []), nodes=nodes, groups=groups)
+        render_tproxy_script(nodes=nodes, groups=groups, normalized_lists=normalized_lists)
+    except Exception as exc:
+        return {"code": 1, "stdout": "", "stderr": str(exc)}
     with tempfile.TemporaryDirectory(prefix=".staged-", dir=str(RULE_DIR)) as temp_name:
         staged_dir = Path(temp_name)
         write_rule_files(staged_dir, normalized_lists)
         try:
-            config = render_config(nodes=nodes, groups=groups, rule_dir=staged_dir)
+            config = render_config(nodes=nodes, groups=groups, rule_dir=staged_dir, normalized_lists=normalized_lists)
             validate_outbound_references(config)
         except Exception as exc:
             return {"code": 1, "stdout": "", "stderr": str(exc)}
@@ -2312,6 +2351,7 @@ def staged_check(normalized_lists, nodes=None, groups=None):
 
 
 def apply_all(normalized_lists, nodes, groups):
+    validate_greylist_ip_cidrs(normalized_lists.get("greylist", []), nodes=nodes, groups=groups)
     backups = {
         "config": backup_manager_file(CONFIG_PATH),
         "nodes": backup_manager_file(NODES_PATH),
@@ -2325,7 +2365,7 @@ def apply_all(normalized_lists, nodes, groups):
     backup_manager_file(GROUPS_PATH)
     write_json(NODES_PATH, nodes)
     write_json(GROUPS_PATH, groups)
-    write_json(CONFIG_PATH, render_config(nodes=nodes, groups=groups, rule_dir=RULE_DIR))
+    write_json(CONFIG_PATH, render_config(nodes=nodes, groups=groups, rule_dir=RULE_DIR, normalized_lists=normalized_lists))
     return {"rules": saved, "backups": backups}
 
 
@@ -2357,7 +2397,7 @@ def apply_proxy_default(tag):
             "rollback": rollback,
             "state": load_state(),
         }
-    tproxy_sync = sync_tproxy(nodes=nodes, groups=groups)
+    tproxy_sync = sync_tproxy(nodes=nodes, groups=groups, normalized_lists=normalized_lists)
     # 默认节点关系到真实出站路径，不能只写配置或只切运行态；保存后必须校验 Clash API 的当前选择已经对齐。
     proxy = set_proxy_now_checked(tag)
     # sing-box 重启后 Auto 的 now/history 可能短暂为空，主动触发一次测速，避免 UI 新增节点后看不到 Auto 当前判断。
@@ -2461,7 +2501,7 @@ def import_backup_payload(payload):
             "rollback": rollback,
             "tproxySync": None,
         }
-    tproxy_sync = sync_tproxy(nodes=nodes, groups=groups)
+    tproxy_sync = sync_tproxy(nodes=nodes, groups=groups, normalized_lists=normalized_lists)
     return {
         "ok": True,
         "error": "",
@@ -2696,7 +2736,7 @@ class Handler(BaseHTTPRequestHandler):
                         500,
                     )
                     return
-                tproxy_sync = sync_tproxy(nodes=nodes, groups=groups)
+                tproxy_sync = sync_tproxy(nodes=nodes, groups=groups, normalized_lists=normalized_lists)
                 self.send_json(
                     {
                         "saved": result,
