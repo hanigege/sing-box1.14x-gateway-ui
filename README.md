@@ -31,6 +31,7 @@
 - 分流规则定时更新，下载失败保留旧文件
 - 维护页展示规则更新、TProxy、服务状态和节点服务器解析结果
 - 9090 Clash API 仅作为 9091 后端的内部运行态数据源，不再安装独立 zashboard 静态面板
+- 实时日志只在浏览器保留最近 300 行；落盘日志由 systemd journal 管理，安装器会限制 journal 总量，避免长期 `info` 日志撑满磁盘
 - `sing-box-gateway-info` 一键查看访问地址和密钥
 
 ## 透明网关 sysctl
@@ -110,6 +111,7 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 - 当前系统 DNS 文件：`/etc/resolv.conf`，安装器不会写入公共 DNS 或 sing-box 本机 IP
 - systemd-resolved 备份：`/etc/sing-box/manager/resolved.conf.before-sing-box`
 - resolv.conf 备份：`/etc/sing-box/manager/resolv.conf.before-sing-box`
+- journal 限额：`/etc/systemd/journald.conf.d/90-sing-box-gateway.conf`，默认 `SystemMaxUse=256M`、`SystemKeepFree=1G`、`MaxRetentionSec=14day`
 - sing-box 主配置：`/etc/sing-box/config.json`
 - UI 管理配置：`/etc/sing-box/manager/`
 - 自定义规则文件：`/etc/sing-box/custom-rules/`

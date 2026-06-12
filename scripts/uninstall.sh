@@ -193,6 +193,7 @@ main() {
     /usr/local/sbin/update-sing-box-rules-jsdelivr \
     /usr/local/bin/sing-box-gateway-info \
     /usr/local/bin/sing-box-gateway-uninstall \
+    /etc/systemd/journald.conf.d/90-sing-box-gateway.conf \
     /etc/sysctl.d/99-sing-box-tproxy.conf
 
   remove_generated_radvd_files

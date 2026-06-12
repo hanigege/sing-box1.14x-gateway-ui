@@ -10,6 +10,7 @@ MANAGER_DIR="$CONFIG_DIR/manager"
 RULE_DIR="$CONFIG_DIR/custom-rules"
 INSTALL_STATE_FILE="$MANAGER_DIR/install-state"
 RADVD_STATE_FILE="$MANAGER_DIR/radvd-state.before-sing-box"
+JOURNALD_LIMIT_CONF="/etc/systemd/journald.conf.d/90-sing-box-gateway.conf"
 APT_PACKAGES=(curl ca-certificates tar gzip python3 nftables iproute2 rsync util-linux)
 PROXY_PREFIX="${SING_BOX_GATEWAY_PROXY_PREFIX:-https://scg.jgaga.tk/}"
 PROXY_PREFIXES="${SING_BOX_GATEWAY_PROXY_PREFIXES:-${PROXY_PREFIX},https://gh-proxy.com/,https://gh.llkk.cc/}"
@@ -187,6 +188,19 @@ install_files() {
   install -m 0644 "$PROJECT_DIR/systemd/sing-box-tproxy.service" /etc/systemd/system/sing-box-tproxy.service
   # 清理旧版 helper；旧脚本会无条件写入 radvd.conf 并启动 RA 广播。
   rm -f /usr/local/sbin/refresh-sing-box-tproxy-setup
+}
+
+configure_journald_limits() {
+  mkdir -p "$(dirname "$JOURNALD_LIMIT_CONF")"
+  cat > "$JOURNALD_LIMIT_CONF" <<'EOF'
+[Journal]
+# sing-box info 日志会进入 systemd journal；限制总量，避免长期运行把小硬盘写满。
+# 这是系统级 journal 上限，不要改成无限大；需要更大排障窗口时只调 SystemMaxUse。
+SystemMaxUse=256M
+SystemKeepFree=1G
+MaxRetentionSec=14day
+EOF
+  systemctl restart systemd-journald.service >/dev/null 2>&1 || true
 }
 
 bootstrap_config() {
@@ -389,6 +403,7 @@ main() {
   choose_sing_box_runtime
   install_packages
   install_files
+  configure_journald_limits
   bootstrap_config
   install_sing_box
   install_initial_rules
