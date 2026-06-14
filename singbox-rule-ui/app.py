@@ -1968,6 +1968,11 @@ table inet singbox_tproxy {{
   chain prerouting {{
     type filter hook prerouting priority mangle; policy accept;
 
+    # 本机进程访问 FakeIP 时，output 链只负责打标，策略路由回 lo 后在这里交给 sing-box。
+    # 只接管 FakeIP，不接管真实公网 IP，避免把节点服务器连接和 UI 测速流量卷回 TProxy。
+    iifname "lo" ip daddr {sets["fakeip4"]} meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" tproxy ip to :"${{TPROXY_PORT}}" accept
+    iifname "lo" ip6 daddr {sets["fakeip6"]} meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" tproxy ip6 to :"${{TPROXY_PORT}}" accept
+
     iifname != "${{IFACE}}" return
     udp dport 53 return
     tcp dport 53 return
@@ -1977,6 +1982,14 @@ table inet singbox_tproxy {{
     ip daddr @proxy4 meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" tproxy ip to :"${{TPROXY_PORT}}" accept
     ip6 daddr @proxy6 meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" tproxy ip6 to :"${{TPROXY_PORT}}" accept
     meta l4proto {{ tcp, udp }} return
+  }}
+
+  chain output {{
+    type route hook output priority mangle; policy accept;
+
+    meta mark "${{TPROXY_MARK}}" return
+    ip daddr {sets["fakeip4"]} meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" accept
+    ip6 daddr {sets["fakeip6"]} meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" accept
   }}
 
   chain dns_hijack {{
