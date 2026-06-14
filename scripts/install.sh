@@ -66,9 +66,20 @@ record_preinstall_state() {
 }
 
 install_packages() {
+  local missing=() package
   if command -v apt-get >/dev/null 2>&1; then
+    for package in "${APT_PACKAGES[@]}"; do
+      if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
+        missing+=("$package")
+      fi
+    done
+    if [ "${#missing[@]}" -eq 0 ]; then
+      # 生产机原地升级时常见依赖已经齐全；跳过 apt update，避免外部源不可达导致升级卡住。
+      echo "Required apt packages are already installed; skipped apt update."
+      return
+    fi
     apt-get update
-    apt-get install -y "${APT_PACKAGES[@]}"
+    apt-get install -y "${missing[@]}"
   else
     echo "Only apt-based systems are supported by this MVP installer." >&2
     exit 1
@@ -431,11 +442,13 @@ enable_services() {
   systemctl disable --now monitor-sing-box-runtime.timer monitor-sing-box-runtime.service >/dev/null 2>&1 || true
   rm -f /etc/systemd/system/monitor-sing-box-runtime.timer /etc/systemd/system/monitor-sing-box-runtime.service
   systemctl daemon-reload
-  systemctl enable --now sing-box-tproxy.service
-  systemctl enable --now sing-box.service
-  systemctl enable --now singbox-rule-ui.service
   systemctl enable --now update-sing-box-rules-jsdelivr.timer
   systemctl enable --now sing-box-runtime-monitor.timer
+  systemctl enable sing-box-tproxy.service sing-box.service singbox-rule-ui.service
+  # 覆盖升级会替换 /usr/local/bin/sing-box 和 UI 文件；active 服务必须显式重启，不能只依赖 enable --now。
+  systemctl restart sing-box-tproxy.service
+  systemctl restart sing-box.service
+  systemctl restart singbox-rule-ui.service
 }
 
 refresh_tproxy_after_start() {
