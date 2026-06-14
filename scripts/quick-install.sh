@@ -87,12 +87,14 @@ case "$ACTION" in
     ;;
 esac
 
-if [ -r /dev/tty ]; then
+if [ "${SING_BOX_GATEWAY_INTERACTIVE:-0}" = "1" ] && [ -r /dev/tty ]; then
   exec bash "$target" "${args[@]}" </dev/tty
 fi
 
 if [ "$ACTION" = "install" ] || [ -z "$ACTION" ]; then
-  echo "未检测到可交互终端，将使用默认值继续安装。"
+  # 一键安装默认走非交互路径，避免 curl | sudo bash 在面板终端或伪 tty 环境里卡在问答输入。
+  export SING_BOX_GATEWAY_ASSUME_DEFAULTS="${SING_BOX_GATEWAY_ASSUME_DEFAULTS:-1}"
+  echo "使用默认值继续安装；如需交互式安装，请设置 SING_BOX_GATEWAY_INTERACTIVE=1。"
 else
   args+=("--yes")
 fi
