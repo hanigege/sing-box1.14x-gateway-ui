@@ -256,6 +256,8 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
             ],
             "rules": [
                 {"inbound": dns_inbounds, "action": "hijack-dns"},
+                # FakeIP 的 UDP/443 必须排在 sniff 前，否则 FakeIP 可能先被还原成域名，导致 ip_cidr 阻断失效。
+                {"network": "udp", "port": 443, "ip_cidr": [fake4, fake6], "outbound": "block"},
                 {"inbound": "tproxy-in", "action": "sniff", "sniffer": ["tls", "http"], "timeout": "300ms"},
                 {"rule_set": "custom-blacklist", "outbound": "block"},
                 {"rule_set": "custom-whitelist", "outbound": "direct"},
@@ -265,8 +267,6 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
                 {"rule_set": ["geosite-speedtest"], "outbound": "direct"},
                 # Telegram 客户端可能直接连接官方 IP 段，域名和 IP 规则都要在 FakeIP 捕获前送代理。
                 {"rule_set": ["geosite-telegram", "geoip-telegram"], "outbound": "Proxy"},
-                # 只拦 FakeIP 的 UDP/443，让浏览器回落 TCP，减少 QUIC 长连接压住代理节点。
-                {"network": "udp", "port": 443, "ip_cidr": [fake4, fake6], "outbound": "block"},
                 {"ip_cidr": [fake4, fake6], "outbound": "Proxy"},
                 {"ip_is_private": True, "outbound": "direct"},
                 {"rule_set": ["geosite-geolocation-!cn"], "outbound": "Proxy"},

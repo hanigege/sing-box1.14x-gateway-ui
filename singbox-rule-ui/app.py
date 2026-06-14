@@ -824,17 +824,20 @@ def apply_fakeip_quic_policy(config, groups):
             and any(str(item) in fake_networks for item in rule.get("ip_cidr", []))
         )
     ]
-    insert_at = 0
+    insert_at = len(rules)
     for index, rule in enumerate(rules):
+        if isinstance(rule, dict) and rule.get("action") == "sniff":
+            insert_at = index
+            break
         if (
             isinstance(rule, dict)
             and rule.get("outbound") == "Proxy"
             and isinstance(rule.get("ip_cidr"), list)
             and any(str(item) in {fakeip4, fakeip6} for item in rule.get("ip_cidr", []))
         ):
-            insert_at = index
+            insert_at = min(insert_at, index)
             break
-    # 只拦 FakeIP 的 UDP/443，促使浏览器回落 TCP，避免 QUIC 长连接压住代理节点；真实 IP 的游戏 UDP 不受影响。
+    # FakeIP 的 UDP/443 必须排在 sniff 前，否则 FakeIP 可能先被还原成域名，导致 ip_cidr 阻断失效。
     rules.insert(insert_at, {"network": "udp", "port": 443, "ip_cidr": [fakeip4, fakeip6], "outbound": "block"})
 
 
