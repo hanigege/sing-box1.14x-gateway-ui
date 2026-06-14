@@ -1,10 +1,12 @@
-# sing-box-gateway-ui
+# sing-box1.14x-gateway-ui
 
 > **醒目说明：本小白网关仓库固定使用 `sing-box 1.14.0-alpha.31` 官方预发布版，不使用 latest 或上游自动升级版本。**
 
-`sing-box-gateway-ui` 是一个面向旁路代理/旁路网关场景的一键安装项目，集成 `sing-box`、TProxy、分流规则自动更新、规则管理 UI 和受 token 保护的运行状态面板。
+`sing-box1.14x-gateway-ui` 是一个面向旁路代理/旁路网关场景的一键安装项目，集成 `sing-box`、TProxy、分流规则自动更新、规则管理 UI 和受 token 保护的运行状态面板。
 
 设计目标是：**高效、简洁、sing-box 不死**。所有配置保存、规则更新和 TProxy 同步都应先检查、可回滚，避免因为错误输入导致正在运行的 `sing-box` 无法启动。
+
+项目默认值只用于开箱即用，不把用户网络环境锁死。安装路径、管理目录、规则源、镜像、DNS、服务名、TProxy 参数和 Telegram CIDR 来源都应允许通过环境变量或 UI 覆盖；自动化任务必须校验成功后再落盘，失败保留旧配置和旧规则，优先保证 `sing-box` 持续可用。
 
 ## 功能
 
@@ -20,6 +22,7 @@
 - DDNS 可选择本地 DNS 或经代理节点访问的远程 DNS
 - TProxy 自动检测默认网卡、本机网段和 IPv6 前缀
 - 节点服务器 IP 自动加入 TProxy bypass，避免代理链路被透明代理套住
+- Telegram 官方 IP 捕获列表支持在线更新和手动校验编辑，避免官方 CIDR 变化后 TProxy 仍使用旧内置网段
 - FakeIP 网段不绕过 TProxy，继续交给 `sing-box` 分流
 - LAN 侧 TCP/UDP 53 会被重定向到 sing-box DNS，降低 IPv4/IPv6 明文 DNS 泄漏
 - 安装器默认不把系统 DNS 指向本机、不广播 IPv6 网关，并会停止、mask 已存在但未显式启用的 `radvd`
@@ -77,7 +80,7 @@ net.ipv6.conf.eth0.accept_ra_defrtr=1
 推荐使用代理单入口安装命令，适合新机器还没有代理环境、GitHub DNS 可能被污染的情况：
 
 ```bash
-curl -fsSL --connect-timeout 10 --max-time 120 https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh | sudo bash -s -- install
+curl -fsSL --connect-timeout 10 --max-time 120 https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box1.14x-gateway-ui/main/scripts/quick-install.sh | sudo bash -s -- install
 ```
 
 链接式执行时，`install` 必须放在 `bash -s --` 后面，才能作为参数传给下载到的 `quick-install.sh`。
@@ -85,7 +88,7 @@ curl -fsSL --connect-timeout 10 --max-time 120 https://scg.jgaga.tk/https://raw.
 如果当前机器直连 GitHub 稳定，也可以使用官方单入口：
 
 ```bash
-curl -fsSL --connect-timeout 10 --max-time 120 https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s -- install
+curl -fsSL --connect-timeout 10 --max-time 120 https://github.com/hanigege/sing-box1.14x-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s -- install
 ```
 
 一键安装会先让你选择安装模式：输入 `1` 走默认安装，自动检测架构和 LAN IPv4，并用简单模式把服务先启动；输入 `2` 走交互安装，可以手动选择架构、FakeIP、初始节点等配置。只有在网页终端、脚本管道等没有可交互 tty 的环境里，安装器才会自动使用默认值，避免安装过程卡在无人可答的输入上。安装器只使用仓库自带并验证过的 `sing-box 1.14.0-alpha.31`，不提供自动下载 latest。这样升级目标可追踪，避免上游配置语法继续变化导致安装后无法启动。项目源码下载会优先尝试反代地址，失败后再尝试 GitHub 官方地址。
@@ -153,7 +156,7 @@ nameserver 192.168.1.2
 
 测速类域名规则集 `geosite-speedtest` 默认直连，不压到代理节点上。测速页面或测速 App 会并发建立大量连接并主动打满带宽，如果走代理，容易把节点和 TProxy 链路占满，导致游戏、语音和其它实时业务延迟突然升高。
 
-内置规则更新脚本只维护运行配置真实引用的规则集：`geosite-geolocation-!cn`、`geosite-cn`、`geosite-geolocation-cn`、`geosite-icloud@cn`、`geosite-apple@cn`、`geosite-speedtest`、`geosite-telegram`、`geoip-cn` 和 `geoip-telegram`。默认使用 MetaCubeX 的 sing-box `.srs` 规则集，不再依赖 SagerNet 规则仓库；下载时优先走 `https://scg.jgaga.tk/https://raw.githubusercontent.com/...`，并用真实 DNS 解析规则源主机，避免宿主机 `/etc/resolv.conf` 指向 sing-box 时拿到 FakeIP 后直连超时。Telegram 是默认保留的核心例外，因为客户端可能直接连接官方 IP 段，只靠域名地理规则不够稳。YouTube、Netflix 等其它应用类规则如果没有被路由规则或 UI 开关引用，默认不下载；这些站点仍由 `geosite-geolocation-!cn` 覆盖走代理，只有需要为某个应用单独指定策略时，才应该新增对应 UI 开关和规则引用。规则下载越多不等于体验越好，未引用文件只会增加定时更新失败、死链和排障噪音。
+内置规则更新脚本只维护运行配置真实引用的规则集：`geosite-geolocation-!cn`、`geosite-cn`、`geosite-geolocation-cn`、`geosite-icloud@cn`、`geosite-apple@cn`、`geosite-speedtest`、`geosite-telegram`、`geoip-cn` 和 `geoip-telegram`。默认使用 MetaCubeX 的 sing-box `.srs` 规则集，不再依赖 SagerNet 规则仓库；下载时优先走 `https://scg.jgaga.tk/https://raw.githubusercontent.com/...`，并用真实 DNS 解析规则源主机，避免宿主机 `/etc/resolv.conf` 指向 sing-box 时拿到 FakeIP 后直连超时。Telegram 是默认保留的核心例外，因为客户端可能直接连接官方 IP 段，只靠域名地理规则不够稳。TProxy 使用的 Telegram 官方 IP 捕获列表会优先从 Telegram 官方 `cidr.txt` 更新，失败再尝试 GitHub 镜像；这些来源可用 `RULE_UI_TELEGRAM_CIDR_SOURCES` 或 `RULE_UPDATE_TELEGRAM_CIDR_SOURCES` 覆盖。更新内容必须通过 CIDR 校验才会写入 `/etc/sing-box/manager/telegram-cidr.json`，失败时保留旧列表或使用内置兜底。YouTube、Netflix 等其它应用类规则如果没有被路由规则或 UI 开关引用，默认不下载；这些站点仍由 `geosite-geolocation-!cn` 覆盖走代理，只有需要为某个应用单独指定策略时，才应该新增对应 UI 开关和规则引用。规则下载越多不等于体验越好，未引用文件只会增加定时更新失败、死链和排障噪音。
 
 FakeIP 固定启用 UDP/443 保护：只对 FakeIP 网段的 QUIC 流量执行 `block`，让浏览器自动回落到 TCP/HTTPS，再继续按域名规则走直连或代理。这样可以减少 YouTube、Google 等大流量 QUIC 长连接压住代理节点和连接表；真实目标 IP 的游戏 UDP、语音 UDP 和直连业务不受这条规则影响。这个保护属于网关稳定性边界，不在 UI 里提供关闭入口。
 
@@ -254,7 +257,7 @@ SING_BOX_ARCH=arm64 sudo bash scripts/install.sh
 新版本安装器会在 `/etc/sing-box/manager/install-state` 记录安装前状态，用于卸载时判断哪些文件和依赖可以安全删除。老版本安装没有这份记录时，卸载仍会清理本项目路径和服务，但不会猜测删除安装前状态不明的系统组件。
 
 ```bash
-curl -fsSL --connect-timeout 10 --max-time 120 https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh | sudo bash -s -- uninstall
+curl -fsSL --connect-timeout 10 --max-time 120 https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box1.14x-gateway-ui/main/scripts/quick-install.sh | sudo bash -s -- uninstall
 ```
 
 链接式执行时，`uninstall` 必须放在 `bash -s --` 后面，才能作为参数传给下载到的 `quick-install.sh`。
@@ -262,19 +265,19 @@ curl -fsSL --connect-timeout 10 --max-time 120 https://scg.jgaga.tk/https://raw.
 直连 GitHub 稳定时也可以使用官方卸载入口：
 
 ```bash
-curl -fsSL --connect-timeout 10 --max-time 120 https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s -- uninstall
+curl -fsSL --connect-timeout 10 --max-time 120 https://github.com/hanigege/sing-box1.14x-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s -- uninstall
 ```
 
 如果没有安装状态记录，但你仍然确认要删除 `/usr/local/bin/sing-box`，可以使用 purge：
 
 ```bash
-curl -fsSL --connect-timeout 10 --max-time 120 https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh | sudo bash -s -- purge
+curl -fsSL --connect-timeout 10 --max-time 120 https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box1.14x-gateway-ui/main/scripts/quick-install.sh | sudo bash -s -- purge
 ```
 
 直连 GitHub 稳定时也可以使用官方 purge 入口：
 
 ```bash
-curl -fsSL --connect-timeout 10 --max-time 120 https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s -- purge
+curl -fsSL --connect-timeout 10 --max-time 120 https://github.com/hanigege/sing-box1.14x-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s -- purge
 ```
 
 ## Git 安装
@@ -282,8 +285,8 @@ curl -fsSL --connect-timeout 10 --max-time 120 https://github.com/hanigege/sing-
 适合想修改脚本或参与开发的用户：
 
 ```bash
-git clone https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet.git
-cd sing-box-gateway-ui--1.14x-SagerNet
+git clone https://github.com/hanigege/sing-box1.14x-gateway-ui.git
+cd sing-box1.14x-gateway-ui
 sudo bash scripts/install.sh
 ```
 

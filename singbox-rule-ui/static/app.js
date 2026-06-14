@@ -122,12 +122,17 @@ const translations = {
     backupImportedAlert: "Backup imported successfully. sing-box and TProxy are ready.",
     backupImportFailed: "Backup import failed. Existing config is still in use.",
     updatingRules: "Updating rule sets",
+    updatingTelegramCidr: "Updating Telegram IP ranges",
+    savingTelegramCidr: "Saving Telegram IP ranges",
     ruleUpdateRunning: "Updating now. Please wait.",
     ruleUpdateSlow: "Update is slow. Existing rule files are still in use.",
     syncingTproxy: "Syncing TProxy",
     rulesUpdated: "Rule sets updated safely",
     tproxySynced: "TProxy synced safely",
     tproxySyncFailed: "TProxy sync failed. sing-box is still running.",
+    telegramCidrUpdated: "Telegram IP ranges updated and TProxy synced",
+    telegramCidrSaved: "Telegram IP ranges saved and TProxy synced",
+    telegramCidrUpdateFailed: "Telegram IP range update failed. Existing list is still in use.",
     maintenance: "Maintenance",
     maintenanceNote: "Rule-set updates and TProxy status",
     backupTitle: "Backup and restore",
@@ -164,8 +169,19 @@ const translations = {
     plannedBypass4: "IPv4 destinations not intercepted",
     plannedBypass6: "IPv6 destinations not intercepted",
     fakeipRanges: "FakeIP ranges",
+    plannedProxy4: "IPv4 destinations captured",
+    plannedProxy6: "IPv6 destinations captured",
+    telegramCaptureStatus: "Telegram IP capture",
+    telegramCidrTitle: "Telegram IP ranges",
+    telegramCidrLoading: "Loading Telegram CIDR status.",
+    telegramCidrSummary: "Source: {source} · IPv4 {count4} · IPv6 {count6} · Updated: {updated}",
+    telegramCidrFallback: "using built-in fallback",
+    telegramCidrNever: "not saved yet",
+    telegramCidrHelp: "Online update downloads, validates, saves, and applies the list in one step. Use manual save only after editing the text box.",
+    updateTelegramCidr: "Update and apply online",
+    saveTelegramCidr: "Save manual list",
     nodeServerIps: "Node server addresses",
-    tproxyPolicy: "LAN/private and node server IPs bypass TProxy. LAN DNS port 53 is redirected to sing-box DNS. TProxy captures FakeIP, greylist IP/CIDR, and Telegram public ranges when enabled; other real public IPs stay on the normal route.",
+    tproxyPolicy: "LAN/private and node server IPs bypass TProxy. LAN DNS port 53 is redirected to sing-box DNS. FakeIP, explicit Greylist IP/CIDR, and enabled Telegram IP ranges are captured by TProxy.",
     prefixMismatch: "IPv6 bypass prefix should be regenerated for this host.",
     healthy: "OK",
     unknown: "Unknown",
@@ -195,9 +211,12 @@ const translations = {
     fakeipV4: "IPv4 range",
     fakeipV6: "IPv6 range",
     fakeipIpv6Enabled: "Enable IPv6 FakeIP / AAAA",
-    telegramCaptureIp: "Capture Telegram official IP ranges",
+    fakeipIpv6Help: "Return IPv6 FakeIP answers for matched domains only when the upstream router sends the IPv6 FakeIP range back to sing-box.",
     fakeipQuicPolicy: "FakeIP QUIC protection is always on",
     fakeipQuicPolicyHelp: "UDP/443 to FakeIP ranges is blocked so browsers fall back to TCP, reducing QUIC long connections that can occupy proxy bandwidth and connection tracking. Real game and voice UDP are not affected.",
+    telegramCaptureIps: "Proxy Telegram official IP ranges",
+    telegramPolicy: "Telegram IP capture",
+    telegramPolicyHelp: "Telegram clients may connect to official IPs directly. This keeps those explicit service ranges in TProxy without capturing all public IP traffic.",
     editingNode: "Editing node",
     nodeSelected: "Node loaded into the form",
     nodeDeleteBlocked: "This node is still referenced by the active default. Choose another default first.",
@@ -363,12 +382,17 @@ const translations = {
     backupImportedAlert: "备份导入成功，sing-box 和 TProxy 已就绪。",
     backupImportFailed: "备份导入失败，当前配置仍在使用。",
     updatingRules: "正在更新分流规则",
+    updatingTelegramCidr: "正在更新 Telegram IP 网段",
+    savingTelegramCidr: "正在保存 Telegram IP 网段",
     ruleUpdateRunning: "正在更新，请稍候。",
     ruleUpdateSlow: "更新较慢，旧规则仍在使用，不影响 sing-box。",
     syncingTproxy: "正在同步 TProxy",
     rulesUpdated: "分流规则已安全更新",
     tproxySynced: "TProxy 已安全同步",
     tproxySyncFailed: "TProxy 同步失败，sing-box 仍在运行。",
+    telegramCidrUpdated: "Telegram IP 网段已更新，TProxy 已同步",
+    telegramCidrSaved: "Telegram IP 网段已保存，TProxy 已同步",
+    telegramCidrUpdateFailed: "Telegram IP 网段更新失败，旧列表仍在使用。",
     maintenance: "维护",
     maintenanceNote: "规则集更新与 TProxy 状态",
     backupTitle: "备份与恢复",
@@ -405,8 +429,19 @@ const translations = {
     plannedBypass4: "不接管的 IPv4 目标",
     plannedBypass6: "不接管的 IPv6 目标",
     fakeipRanges: "FakeIP 网段",
+    plannedProxy4: "已捕获 IPv4 目标",
+    plannedProxy6: "已捕获 IPv6 目标",
+    telegramCaptureStatus: "Telegram IP 捕获",
+    telegramCidrTitle: "Telegram IP 网段",
+    telegramCidrLoading: "正在读取 Telegram CIDR 状态。",
+    telegramCidrSummary: "来源：{source} · IPv4 {count4} 条 · IPv6 {count6} 条 · 更新时间：{updated}",
+    telegramCidrFallback: "正在使用内置兜底列表",
+    telegramCidrNever: "尚未保存",
+    telegramCidrHelp: "在线更新会自动下载、校验、保存并应用；只有手动改了文本框，才需要点保存手动列表。",
+    updateTelegramCidr: "在线更新并应用",
+    saveTelegramCidr: "保存手动列表",
     nodeServerIps: "节点服务器地址",
-    tproxyPolicy: "内网/本机网段和节点服务器 IP 会绕过 TProxy；LAN 进来的 53 端口 DNS 会被劫回 sing-box；TProxy 会捕获 FakeIP、灰名单 IP/CIDR，以及开关启用时的 Telegram 固定公网段，其它真实公网 IP 按系统路由直连。",
+    tproxyPolicy: "内网、本机和节点服务器 IP 会绕过 TProxy；LAN DNS 53 端口会转给 sing-box；FakeIP、灰名单 IP/CIDR 和启用的 Telegram 官方 IP 网段会进入 TProxy。",
     prefixMismatch: "IPv6 绕过前缀和当前机器不一致，打包安装时应自动生成。",
     healthy: "正常",
     unknown: "未知",
@@ -436,9 +471,12 @@ const translations = {
     fakeipV4: "IPv4 网段",
     fakeipV6: "IPv6 网段",
     fakeipIpv6Enabled: "启用 IPv6 FakeIP / AAAA",
-    telegramCaptureIp: "捕获 Telegram 官方 IP 段",
+    fakeipIpv6Help: "只有当前端路由器已把 IPv6 FakeIP 网段送回 sing-box 时，才建议开启 AAAA FakeIP 响应。",
     fakeipQuicPolicy: "FakeIP QUIC 保护固定开启",
     fakeipQuicPolicyHelp: "系统会固定拦截发往 FakeIP 网段的 UDP/443，让浏览器回落到 TCP，减少 QUIC 长连接占满代理带宽和连接表；真实游戏/语音 UDP 不受影响。",
+    telegramCaptureIps: "代理 Telegram 官方 IP 网段",
+    telegramPolicy: "Telegram IP 捕获",
+    telegramPolicyHelp: "Telegram 客户端可能直接连接官方 IP。开启后只把这些明确服务网段加入 TProxy，不扩大到全部公网 IP。",
     editingNode: "正在编辑节点",
     nodeSelected: "已把节点参数填入上方表单",
     nodeDeleteBlocked: "这个节点仍是当前默认选择，请先切换默认节点。",
@@ -542,6 +580,8 @@ function updateButtons() {
   $("exportBackupBtn").disabled = busy;
   $("importBackupBtn").disabled = busy;
   $("updateRulesBtn").disabled = busy;
+  $("updateTelegramCidrBtn").disabled = busy;
+  $("saveTelegramCidrBtn").disabled = busy;
   $("saveBtn").disabled = busy || !dirty;
   $("nodeSubmit").disabled = busy || Boolean(editingNodeTag && !nodeEditChanged);
   const scheduleSave = $("saveRuleScheduleBtn");
@@ -1088,6 +1128,26 @@ function renderMaintenanceDetails(titleText, items, note = "") {
   return details;
 }
 
+function formatTelegramCidrSummary(data) {
+  const updated = data?.updatedAt || t("telegramCidrNever");
+  const source = data?.fallback ? t("telegramCidrFallback") : data?.source || t("unknown");
+  return t("telegramCidrSummary")
+    .replace("{source}", source)
+    .replace("{count4}", String(data?.count4 ?? 0))
+    .replace("{count6}", String(data?.count6 ?? 0))
+    .replace("{updated}", updated);
+}
+
+function renderTelegramCidrPanel() {
+  const data = maintenance?.telegramCidr || maintenance?.tproxy?.planned?.telegramCidr || {};
+  $("telegramCidrSummary").textContent = formatTelegramCidrSummary(data);
+  if (document.activeElement !== $("telegramCidrText")) {
+    $("telegramCidrText").value = (data.cidrs || []).join("\n");
+  }
+  $("updateTelegramCidrBtn").textContent = t("updateTelegramCidr");
+  $("saveTelegramCidrBtn").textContent = t("saveTelegramCidr");
+}
+
 function renderMaintenance() {
   const info = maintenance || {};
   const rule = info.ruleUpdate || {};
@@ -1128,6 +1188,10 @@ function renderMaintenance() {
     [t("currentIpv4Prefix"), tproxy.currentIpv4Prefixes],
     [t("currentIpv6Prefix"), tproxy.currentIpv6Prefixes],
     [t("fakeipRanges"), [tproxy.planned?.fakeip4, tproxy.planned?.fakeip6].filter(Boolean)],
+    [t("telegramCaptureStatus"), tproxy.planned?.telegramCaptureIps ? t("enabled") : t("disabled"), tproxy.planned?.telegramCaptureIps ? "good" : "warn"],
+    [t("telegramCidrTitle"), formatTelegramCidrSummary(info.telegramCidr || tproxy.planned?.telegramCidr || {}), (info.telegramCidr || {}).fallback ? "warn" : "good"],
+    [t("plannedProxy4"), tproxy.planned?.proxy4],
+    [t("plannedProxy6"), tproxy.planned?.proxy6],
     [t("nodeServerIps"), formatNodeServers(tproxy.outboundServers) || tproxy.outboundServerIps],
     [t("scriptIpv6Prefix"), tproxy.scriptIpv6Prefixes, tproxy.ipv6PrefixMatches ? "good" : "warn"],
     [t("plannedBypass4"), tproxy.planned?.bypass4],
@@ -1139,6 +1203,7 @@ function renderMaintenance() {
     [t("updateScript"), rule.scriptExists ? rule.script : t("unknown"), rule.scriptExists ? "good" : "bad"],
   ]));
   rows.appendChild(renderMaintenanceDetails(t("ruleUpdateDetails"), ruleDetailItems));
+  renderTelegramCidrPanel();
 }
 
 function formatBytes(value) {
@@ -1455,6 +1520,57 @@ async function saveRuleUpdateSchedule() {
     setStatus(t("ruleScheduleSaved"), "ok");
   } catch (error) {
     finishActionButton("saveRuleScheduleBtn", "actionFailed", "failed", "saveRuleSchedule");
+    setStatus(error.message, "bad");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function updateTelegramCidr() {
+  setBusy(true);
+  pulseActionButton("updateTelegramCidrBtn", "updatingTelegramCidr");
+  setStatus(t("updatingTelegramCidr"));
+  try {
+    const result = await api("/api/telegram-cidr/update", { method: "POST", body: "{}" });
+    maintenance = result.maintenance || maintenance;
+    if (result.state) state = result.state;
+    render();
+    if (!result.telegramCidrUpdate?.ok) {
+      finishActionButton("updateTelegramCidrBtn", "actionFailed", "failed", "updateTelegramCidr");
+      setStatus((result.telegramCidrUpdate?.errors || []).join("; ") || t("telegramCidrUpdateFailed"), "bad");
+      return;
+    }
+    finishActionButton("updateTelegramCidrBtn", "actionDone", "done", "updateTelegramCidr");
+    setStatus(t("telegramCidrUpdated"), "ok");
+  } catch (error) {
+    finishActionButton("updateTelegramCidrBtn", "actionFailed", "failed", "updateTelegramCidr");
+    setStatus(error.message, "bad");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function saveTelegramCidr() {
+  setBusy(true);
+  pulseActionButton("saveTelegramCidrBtn", "savingTelegramCidr");
+  setStatus(t("savingTelegramCidr"));
+  try {
+    const result = await api("/api/telegram-cidr/save", {
+      method: "POST",
+      body: JSON.stringify({ cidrs: $("telegramCidrText").value }),
+    });
+    maintenance = result.maintenance || maintenance;
+    if (result.state) state = result.state;
+    render();
+    if (result.tproxySync?.code !== 0) {
+      finishActionButton("saveTelegramCidrBtn", "actionFailed", "failed", "saveTelegramCidr");
+      setStatus(result.tproxySync?.stderr || t("tproxySyncFailed"), "bad");
+      return;
+    }
+    finishActionButton("saveTelegramCidrBtn", "actionDone", "done", "saveTelegramCidr");
+    setStatus(t("telegramCidrSaved"), "ok");
+  } catch (error) {
+    finishActionButton("saveTelegramCidrBtn", "actionFailed", "failed", "saveTelegramCidr");
     setStatus(error.message, "bad");
   } finally {
     setBusy(false);
@@ -1783,7 +1899,7 @@ function renderNodes() {
   if (document.activeElement !== $("fakeipV4")) $("fakeipV4").value = state.groups.fakeip.inet4_range || "28.0.0.0/8";
   if (document.activeElement !== $("fakeipV6")) $("fakeipV6").value = state.groups.fakeip.inet6_range || "2001:2::/64";
   $("fakeipIpv6Enabled").checked = state.groups.fakeip.ipv6_enabled !== false;
-  $("telegramCaptureIp").checked = state.groups.telegram.capture_ip !== false;
+  $("telegramCaptureIps").checked = state.groups.telegram.capture_ips !== false;
   $("nodeTitle").textContent = t("nodes");
   $("nodeSummary").textContent = editingNodeTag
     ? `${t("editingNode")}: ${editingNodeTag}`
@@ -2335,6 +2451,8 @@ $("exportBackupBtn").addEventListener("click", exportBackup);
 $("importBackupBtn").addEventListener("click", chooseBackupFile);
 $("backupFileInput").addEventListener("change", importBackupFromFile);
 $("updateRulesBtn").addEventListener("click", updateRuleSets);
+$("updateTelegramCidrBtn").addEventListener("click", updateTelegramCidr);
+$("saveTelegramCidrBtn").addEventListener("click", saveTelegramCidr);
 $("runtimeView").addEventListener("change", () => {
   stopRuntimePolling();
   render();
@@ -2367,7 +2485,7 @@ function syncNodeSettingsFromForm() {
   state.groups.fakeip.ipv6_enabled = $("fakeipIpv6Enabled").checked;
   state.groups.fakeip.block_quic = true;
   state.groups.telegram = state.groups.telegram || {};
-  state.groups.telegram.capture_ip = $("telegramCaptureIp").checked;
+  state.groups.telegram.capture_ips = $("telegramCaptureIps").checked;
   state.groups.proxy = state.groups.proxy || {};
   if (!$("proxyDefault").classList.contains("hidden") && $("proxyDefault").value) {
     state.groups.proxy.default = $("proxyDefault").value;
@@ -2384,7 +2502,7 @@ function syncDraftSettings() {
   syncNodeSettingsFromForm();
 }
 
-["autoUrl", "autoInterval", "autoTolerance", "fakeipV4", "fakeipV6", "fakeipIpv6Enabled", "telegramCaptureIp"].forEach((id) => {
+["autoUrl", "autoInterval", "autoTolerance", "fakeipV4", "fakeipV6", "fakeipIpv6Enabled", "telegramCaptureIps"].forEach((id) => {
   $(id).addEventListener("input", syncNodeSettingsChanged);
   $(id).addEventListener("change", syncNodeSettingsChanged);
 });

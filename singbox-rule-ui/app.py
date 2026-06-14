@@ -30,6 +30,7 @@ NODES_PATH = MANAGER_DIR / "nodes.json"
 GROUPS_PATH = MANAGER_DIR / "groups.json"
 BACKUP_DIR = MANAGER_DIR / "backups"
 RULE_UPDATE_LAST_PATH = MANAGER_DIR / "rule-update-last.json"
+TELEGRAM_CIDR_PATH = MANAGER_DIR / "telegram-cidr.json"
 RULE_UPDATE_SCRIPT = Path(os.environ.get("RULE_UI_RULE_UPDATE_SCRIPT", "/usr/local/sbin/update-sing-box-rules-jsdelivr"))
 RULE_UPDATE_TIMER = os.environ.get("RULE_UI_RULE_UPDATE_TIMER", "update-sing-box-rules-jsdelivr.timer")
 RULE_UPDATE_SERVICE = os.environ.get("RULE_UI_RULE_UPDATE_SERVICE", "update-sing-box-rules-jsdelivr.service")
@@ -62,18 +63,32 @@ CUSTOM_TAGS = {
     "ddns": "custom-ddns",
 }
 
-TELEGRAM_TPROXY_NETWORKS = (
+DEFAULT_TELEGRAM_PROXY_IPV4 = (
     "91.108.4.0/22",
     "91.108.8.0/22",
     "91.108.12.0/22",
     "91.108.16.0/22",
     "91.108.20.0/22",
     "91.108.56.0/22",
-    "95.161.64.0/20",
+    "91.105.192.0/23",
+    "185.76.151.0/24",
     "149.154.160.0/20",
+)
+DEFAULT_TELEGRAM_PROXY_IPV6 = (
     "2001:67c:4e8::/48",
-    "2001:b28:f23c::/47",
+    "2001:b28:f23c::/48",
+    "2001:b28:f23d::/48",
     "2001:b28:f23f::/48",
+    "2a0a:f280::/32",
+)
+DEFAULT_TELEGRAM_CIDR_SOURCES = (
+    "https://core.telegram.org/resources/cidr.txt",
+    "https://raw.githubusercontent.com/fernvenue/telegram-cidr-list/master/CIDR.txt",
+)
+TELEGRAM_CIDR_SOURCES = tuple(
+    item
+    for item in os.environ.get("RULE_UI_TELEGRAM_CIDR_SOURCES", " ".join(DEFAULT_TELEGRAM_CIDR_SOURCES)).split()
+    if item
 )
 
 LOCAL_DNS_SERVER = {
@@ -168,21 +183,21 @@ def rule_path(name):
 
 
 def backup_file(path):
-    if not path.exists():
-        return None
     backup_dir = RULE_DIR / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    target = backup_dir / f"{path.name}.bak-{now_stamp()}"
-    shutil.copy2(path, target)
-    return str(target)
+    return backup_path(path, backup_dir)
 
 
 def backup_manager_file(path):
+    return backup_path(path, BACKUP_DIR)
+
+
+def backup_path(path, backup_dir):
     if not path.exists():
-        return None
-    target = BACKUP_DIR / f"{path.name}.bak-{now_stamp()}"
+        return {"existed": False, "backup": None}
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    target = backup_dir / f"{path.name}.bak-{now_stamp()}"
     shutil.copy2(path, target)
-    return str(target)
+    return {"existed": True, "backup": str(target)}
 
 
 def load_json(path, fallback):
@@ -192,12 +207,32 @@ def load_json(path, fallback):
 
 
 def write_json(path, data):
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    # UI 负责生产配置落盘，必须先写同目录临时文件再原子替换，避免断电/进程中断留下半截 JSON。
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 def restore_file(path, backup):
+    if isinstance(backup, dict):
+        # 回滚必须恢复“原来是否存在”这个状态；否则失败保存会留下新建的规则/配置文件。
+        if not backup.get("existed", bool(backup.get("backup"))):
+            path.unlink(missing_ok=True)
+            return
+        backup = backup.get("backup")
     if backup and Path(backup).exists():
-        shutil.copy2(backup, path)
+        data = json.loads(Path(backup).read_text(encoding="utf-8"))
+        write_json(path, data)
 
 
 def read_text_if_exists(path):
@@ -361,6 +396,109 @@ def normalize_cidr(value, default=None, strict=False):
         raise ValueError(f"Invalid CIDR: {value}{hint}") from exc
 
 
+def normalize_telegram_cidrs(items):
+    if not isinstance(items, list):
+        raise ValueError("Telegram CIDR list must be an array")
+    networks = []
+    for item in items:
+        cidr = str(item or "").strip().strip("'\"")
+        if not cidr:
+            continue
+        networks.append(ipaddress.ip_network(cidr, strict=False))
+    collapsed = []
+    for version in (4, 6):
+        version_networks = [network for network in networks if network.version == version]
+        collapsed.extend(ipaddress.collapse_addresses(version_networks))
+    collapsed = sorted(collapsed, key=lambda net: (net.version, int(net.network_address), net.prefixlen))
+    if not [item for item in collapsed if item.version == 4]:
+        raise ValueError("Telegram CIDR list must include IPv4 ranges")
+    if not [item for item in collapsed if item.version == 6]:
+        raise ValueError("Telegram CIDR list must include IPv6 ranges")
+    return [str(item) for item in collapsed]
+
+
+def default_telegram_cidrs():
+    return normalize_telegram_cidrs([*DEFAULT_TELEGRAM_PROXY_IPV4, *DEFAULT_TELEGRAM_PROXY_IPV6])
+
+
+def parse_telegram_cidr_text(text):
+    items = []
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.split("#", 1)[0].strip().strip("'\"")
+        if not line:
+            continue
+        if line.startswith("- "):
+            line = line[2:].strip().strip("'\"")
+        if "," in line:
+            parts = [part.strip().strip("'\"") for part in line.split(",")]
+            line = next((part for part in parts if "/" in part), line)
+        items.append(str(ipaddress.ip_network(line, strict=False)))
+    return normalize_telegram_cidrs(items)
+
+
+def split_telegram_cidrs(items):
+    normalized = normalize_telegram_cidrs(items)
+    return {
+        "ipv4": [item for item in normalized if ":" not in item],
+        "ipv6": [item for item in normalized if ":" in item],
+    }
+
+
+def load_telegram_cidr_data():
+    data = load_json(TELEGRAM_CIDR_PATH, {})
+    fallback = False
+    try:
+        cidrs = normalize_telegram_cidrs(data.get("cidrs", []))
+    except Exception:
+        cidrs = default_telegram_cidrs()
+        data = {}
+        fallback = True
+    split = split_telegram_cidrs(cidrs)
+    return {
+        "path": str(TELEGRAM_CIDR_PATH),
+        "source": data.get("source") or "built-in default",
+        "updatedAt": data.get("updatedAt") or "",
+        "fallback": fallback,
+        "cidrs": [*split["ipv4"], *split["ipv6"]],
+        "ipv4": split["ipv4"],
+        "ipv6": split["ipv6"],
+        "count4": len(split["ipv4"]),
+        "count6": len(split["ipv6"]),
+        "count": len(split["ipv4"]) + len(split["ipv6"]),
+    }
+
+
+def save_telegram_cidrs(cidrs, source="manual"):
+    normalized = normalize_telegram_cidrs(cidrs)
+    MANAGER_DIR.mkdir(parents=True, exist_ok=True)
+    write_json(
+        TELEGRAM_CIDR_PATH,
+        {
+            "source": source,
+            "updatedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "cidrs": normalized,
+        },
+    )
+    return load_telegram_cidr_data()
+
+
+def update_telegram_cidrs():
+    errors = []
+    if not TELEGRAM_CIDR_SOURCES:
+        return {"ok": False, "source": "", "telegramCidr": load_telegram_cidr_data(), "tproxySync": None, "errors": ["No Telegram CIDR sources configured"]}
+    for source in TELEGRAM_CIDR_SOURCES:
+        try:
+            request = Request(source, headers={"User-Agent": "sing-box-gateway-ui"})
+            with urlopen(request, timeout=20) as response:
+                text = response.read().decode("utf-8", errors="replace")
+            data = save_telegram_cidrs(parse_telegram_cidr_text(text), source=source)
+            sync = sync_tproxy()
+            return {"ok": sync["code"] == 0, "source": source, "telegramCidr": data, "tproxySync": sync, "errors": errors}
+        except Exception as exc:
+            errors.append(f"{source}: {exc}")
+    return {"ok": False, "source": "", "telegramCidr": load_telegram_cidr_data(), "tproxySync": None, "errors": errors}
+
+
 def normalize_node(raw):
     if not isinstance(raw, dict):
         raise ValueError("node must be an object")
@@ -494,7 +632,7 @@ def extract_initial_manager_data(config):
         },
         "dns": {"local": local_dns_choice},
         "ddns": {"dns": ddns_dns_mode},
-        "telegram": {"capture_ip": True},
+        "telegram": {"capture_ips": True},
     }
     return base, normalize_nodes(nodes), groups
 
@@ -548,8 +686,9 @@ def load_groups():
         groups["dns"]["local"] = DEFAULT_LOCAL_DNS_CHOICE
     if groups["ddns"].get("dns") not in ("local", "remote"):
         groups["ddns"]["dns"] = "local"
-    groups["telegram"].setdefault("capture_ip", True)
-    groups["telegram"]["capture_ip"] = normalize_bool(groups["telegram"]["capture_ip"])
+    groups["telegram"].setdefault("capture_ips", groups["telegram"].get("capture_ip", True))
+    groups["telegram"]["capture_ips"] = normalize_bool(groups["telegram"]["capture_ips"])
+    groups["telegram"].pop("capture_ip", None)
     return groups
 
 
@@ -1259,10 +1398,7 @@ def write_entries(name, entries):
     normalized = entries if all(isinstance(item, dict) and "type" in item and "value" in item for item in entries) else normalize_entries(entries)
     path = rule_path(name)
     backup = backup_file(path)
-    path.write_text(
-        json.dumps(entries_to_rule_set(normalized), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    write_json(path, entries_to_rule_set(normalized))
     return {"name": name, "count": len(normalized), "backup": backup}
 
 
@@ -1320,7 +1456,18 @@ def check_config(config_path=CONFIG_PATH):
 
 
 def restart_sing_box():
-    return run_command(["systemctl", "restart", "sing-box.service"], timeout=20)
+    # UI 操作必须能从 start-limit-hit/failed 状态自救，不能要求用户进终端执行 reset-failed。
+    reset = run_command(["systemctl", "reset-failed", "sing-box.service"], timeout=8)
+    restart = run_command(["systemctl", "restart", "sing-box.service"], timeout=20)
+    deadline = time.time() + 15
+    service = "unknown"
+    while time.time() < deadline:
+        service = unit_status("sing-box.service")
+        if service == "active":
+            break
+        time.sleep(0.5)
+    code = 0 if restart["code"] == 0 and service == "active" else 1
+    return {"code": code, "stdout": restart["stdout"], "stderr": restart["stderr"], "resetFailed": reset, "service": service}
 
 
 def restart_tproxy():
@@ -1847,14 +1994,7 @@ def protected_tproxy_networks(nodes=None, groups=None):
 
 def tproxy_proxy_ip_networks(nodes=None, groups=None, normalized_lists=None):
     protected = protected_tproxy_networks(nodes=nodes, groups=groups)
-    settings = groups or load_groups()
     networks = []
-    if normalize_bool(settings.get("telegram", {}).get("capture_ip", True)):
-        for item in TELEGRAM_TPROXY_NETWORKS:
-            try:
-                networks.append(ipaddress.ip_network(item, strict=False))
-            except ValueError:
-                continue
     entries = (normalized_lists or {}).get("greylist") if normalized_lists is not None else read_entries("greylist")
     for entry in entries or []:
         if entry.get("type") != "ip_cidr":
@@ -1863,13 +2003,10 @@ def tproxy_proxy_ip_networks(nodes=None, groups=None, normalized_lists=None):
             network = ipaddress.ip_network(entry["value"], strict=False)
         except ValueError:
             continue
+        # 灰名单 IP/CIDR 只用于捕获明确外部目标；内网、本机前缀和节点服务器 IP 必须自动排除，避免误代理和回环。
+        if any(network.version == item.version and (network.subnet_of(item) or network.overlaps(item)) for item in protected):
+            continue
         networks.append(network)
-    # 灰名单 IP/CIDR 和 Telegram 内置公网段都会进入 TProxy；内网、本机前缀和节点服务器 IP 必须统一排除，避免误代理和回环。
-    networks = [
-        network
-        for network in networks
-        if not any(network.version == item.version and (network.subnet_of(item) or network.overlaps(item)) for item in protected)
-    ]
     return collapse_networks(networks)
 
 
@@ -1895,7 +2032,8 @@ def collapse_network_strings(items):
 
 def tproxy_bypass_sets(nodes=None, groups=None, normalized_lists=None):
     iface = first_default_interface()
-    fakeip = (groups or load_groups()).get("fakeip", {})
+    groups = groups or load_groups()
+    fakeip = groups.get("fakeip", {})
     fakeip4 = normalize_cidr(fakeip.get("inet4_range", "28.0.0.0/8"), "28.0.0.0/8")
     fakeip6 = normalize_cidr(fakeip.get("inet6_range", "2001:2::/64"), "2001:2::/64")
     protected = [str(item) for item in protected_tproxy_networks(nodes=nodes, groups=groups)]
@@ -1903,15 +2041,23 @@ def tproxy_bypass_sets(nodes=None, groups=None, normalized_lists=None):
     bypass6 = [item for item in protected if ":" in item]
     node_networks = outbound_server_ip_networks(nodes)
     proxy_networks = tproxy_proxy_ip_networks(nodes=nodes, groups=groups, normalized_lists=normalized_lists)
+    telegram_capture = normalize_bool(groups.get("telegram", {}).get("capture_ips", True))
+    telegram_cidr = load_telegram_cidr_data()
+    # Telegram 客户端常直接连接官方 IP；列表从 manager 文件读取，缺失时才使用内置兜底，避免官方变动后长期写死。
+    telegram4 = list(telegram_cidr["ipv4"]) if telegram_capture else []
+    telegram6 = list(telegram_cidr["ipv6"]) if telegram_capture else []
     return {
         "interface": iface,
         "bypass4": collapse_network_strings(bypass4),
         "bypass6": collapse_network_strings(bypass6),
         "fakeip4": fakeip4,
         "fakeip6": fakeip6,
-        # 真实公网 IP 只捕获 UI 灰名单明确网段和 Telegram 内置公网段，其它公网地址继续按系统路由直连。
-        "proxy4": collapse_network_strings([item for item in proxy_networks if ":" not in item]),
-        "proxy6": collapse_network_strings([item for item in proxy_networks if ":" in item]),
+        "proxy4": collapse_network_strings([*telegram4, *[item for item in proxy_networks if ":" not in item]]),
+        "proxy6": collapse_network_strings([*telegram6, *[item for item in proxy_networks if ":" in item]]),
+        "telegramCaptureIps": telegram_capture,
+        "telegramProxy4": collapse_network_strings(telegram4),
+        "telegramProxy6": collapse_network_strings(telegram6),
+        "telegramCidr": telegram_cidr,
         "nodeServerIpNetworks": node_networks,
         "nodeServers": resolved_outbound_servers(nodes, groups),
     }
@@ -2181,6 +2327,7 @@ def maintenance_status():
     current_v6 = current_ipv6_prefixes(iface)
     script_v6 = script_ipv6_prefixes(TPROXY_SCRIPT)
     schedule = parse_rule_update_schedule(timer)
+    telegram_cidr = load_telegram_cidr_data()
     # systemd 在刚触发或不同版本字段为空时，NextElapseUSecRealtime 可能短暂不可用；用 TimersCalendar 的 next_elapse 兜底，避免 UI 把可恢复状态显示成未知。
     next_update = timer.get("NextElapseUSecRealtime", "") or schedule.get("nextBase", "")
     return {
@@ -2197,6 +2344,7 @@ def maintenance_status():
             "summary": summary,
             "schedule": schedule,
         },
+        "telegramCidr": telegram_cidr,
         "tproxy": {
             "service": TPROXY_SERVICE,
             "serviceActive": unit_status(TPROXY_SERVICE),
@@ -2206,7 +2354,8 @@ def maintenance_status():
             "currentIpv6Prefixes": current_v6,
             "currentIpv4Prefixes": current_ipv4_prefixes(iface),
             "scriptIpv6Prefixes": script_v6,
-            "ipv6PrefixMatches": not script_v6 or any(item in script_v6 for item in current_v6),
+            # 多个公网 IPv6 前缀会同时下发给旁路网关；只命中其中一个仍会让另一个真实前缀误走 TProxy。
+            "ipv6PrefixMatches": not script_v6 or all(item in script_v6 for item in current_v6),
             "outboundServerIps": outbound_server_ips(),
             "outboundServers": resolved_outbound_servers(),
             "planned": tproxy_bypass_sets(),
@@ -2525,7 +2674,8 @@ def normalize_payload_groups(raw_groups, nodes=None):
             groups["fakeip"]["block_quic"] = True
         telegram = raw_groups.get("telegram")
         if isinstance(telegram, dict):
-            groups["telegram"]["capture_ip"] = normalize_bool(telegram.get("capture_ip", groups["telegram"].get("capture_ip", True)))
+            # 同时兼容旧字段 capture_ip 和新字段 capture_ips，保证 1.13/旧 1.14 升级不丢开关。
+            groups["telegram"]["capture_ips"] = normalize_bool(telegram.get("capture_ips", telegram.get("capture_ip", groups["telegram"].get("capture_ips", True))))
         dns = raw_groups.get("dns")
         if isinstance(dns, dict):
             local_dns = str(dns.get("local", groups["dns"].get("local", DEFAULT_LOCAL_DNS_CHOICE))).strip()
@@ -2556,10 +2706,7 @@ def rewrite_custom_rule_paths(config, staged_dir):
 def write_rule_files(target_dir, normalized_lists):
     target_dir.mkdir(parents=True, exist_ok=True)
     for name, entries in normalized_lists.items():
-        (target_dir / f"{name}.json").write_text(
-            json.dumps(entries_to_rule_set(entries), indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+        write_json(target_dir / f"{name}.json", entries_to_rule_set(entries))
 
 
 def staged_check(normalized_lists, nodes=None, groups=None):
@@ -2578,7 +2725,7 @@ def staged_check(normalized_lists, nodes=None, groups=None):
         except Exception as exc:
             return {"code": 1, "stdout": "", "stderr": str(exc)}
         staged_config = staged_dir / "config.json"
-        staged_config.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        write_json(staged_config, config)
         return check_config(staged_config)
 
 
@@ -2871,6 +3018,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_json({"maintenance": maintenance_status(), "state": load_state()})
             return
+        if parsed.path == "/api/telegram-cidr":
+            if not self.authorized():
+                self.send_error_json("Unauthorized", 401)
+                return
+            self.send_json({"telegramCidr": load_telegram_cidr_data()})
+            return
         if parsed.path == "/api/backup/export":
             if not self.authorized():
                 self.send_error_json("Unauthorized", 401)
@@ -3000,7 +3153,19 @@ class Handler(BaseHTTPRequestHandler):
                         422,
                     )
                     return
-                self.send_json({"check": check, "restart": restart_sing_box(), "state": load_state()})
+                restart = restart_sing_box()
+                if restart["code"] != 0:
+                    self.send_json(
+                        {
+                            "error": "Restart failed. Existing config was kept and service recovery was attempted.",
+                            "check": check,
+                            "restart": restart,
+                            "state": load_state(),
+                        },
+                        500,
+                    )
+                    return
+                self.send_json({"check": check, "restart": restart, "state": load_state()})
                 return
             if parsed.path == "/api/rules/update":
                 result = update_rule_sets()
@@ -3011,6 +3176,20 @@ class Handler(BaseHTTPRequestHandler):
                 result = write_rule_update_schedule(payload)
                 status = 200 if result["ok"] else 500
                 self.send_json({"scheduleUpdate": result, "maintenance": maintenance_status(), "state": load_state()}, status)
+                return
+            if parsed.path == "/api/telegram-cidr/update":
+                result = update_telegram_cidrs()
+                status = 200 if result["ok"] else 500
+                self.send_json({"telegramCidrUpdate": result, "maintenance": maintenance_status(), "state": load_state()}, status)
+                return
+            if parsed.path == "/api/telegram-cidr/save":
+                cidrs = payload.get("cidrs")
+                if isinstance(cidrs, str):
+                    cidrs = parse_telegram_cidr_text(cidrs)
+                result = save_telegram_cidrs(cidrs or [], source="manual")
+                sync = sync_tproxy()
+                status = 200 if sync["code"] == 0 else 500
+                self.send_json({"telegramCidr": result, "tproxySync": sync, "maintenance": maintenance_status(), "state": load_state()}, status)
                 return
             if parsed.path == "/api/tproxy/sync":
                 result = sync_tproxy()
