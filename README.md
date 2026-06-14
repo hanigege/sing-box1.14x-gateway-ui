@@ -39,6 +39,15 @@
 - 实时日志只在浏览器保留最近 300 行；落盘日志由 systemd journal 管理，安装器会限制 journal 总量，避免长期 `info` 日志撑满磁盘
 - `sing-box-gateway-info` 一键查看 9091 访问地址和 Rule UI token
 
+## DDNS 解析模式
+
+DDNS 规则始终只影响域名解析上游，拿到 IP 后连接仍按 DDNS 路由规则直连，不会把 DDNS 业务流量送进代理。
+
+- 本地解析：`custom-ddns` 使用 `local-dns`，适合 DDNS 域名在本地运营商 DNS 下稳定返回正确地址的场景。
+- 代理解析：`custom-ddns` 使用专用 `ddns-remote-dns`，通过 `Proxy` 出站访问 `udp://1.1.1.1:53`，用于绕开本地 DNS 污染。
+
+代理解析不会复用通用 `remote-dns` 的 Cloudflare DoH 长连接。DDNS 域名本身通常是直连访问，如果解析链路卡在通用 DoH/代理旧连接上，会表现为 DDNS 访问偶发假死；专用 `ddns-remote-dns` 用独立 UDP 上游把这条链路拆开，避免新装、保存或切换解析模式后退回旧行为。
+
 ## 透明网关 sysctl
 
 安装器会自动写入透明网关/TProxy 必需的基础 sysctl 参数，用来开启 IPv4/IPv6 转发，关闭入口网卡反向路径过滤，并在开启 IPv6 forwarding 后继续接受上游路由器的 RA 默认路由。
