@@ -1063,6 +1063,14 @@ def apply_fakeip_quic_policy(config, groups):
         fakeip4,
         fakeip6,
     }
+    youtube_quic_domains = [
+        "googlevideo.com",
+        "youtube.com",
+        "youtube-nocookie.com",
+        "ytimg.com",
+        "ggpht.com",
+        "googleusercontent.com",
+    ]
     rules = config.setdefault("route", {}).setdefault("rules", [])
     rules[:] = [
         rule
@@ -1072,8 +1080,16 @@ def apply_fakeip_quic_policy(config, groups):
             and rule.get("network") == "udp"
             and rule.get("port") == 443
             and rule.get("outbound") == "block"
-            and isinstance(rule.get("ip_cidr"), list)
-            and any(str(item) in fake_networks for item in rule.get("ip_cidr", []))
+            and (
+                (
+                    isinstance(rule.get("ip_cidr"), list)
+                    and any(str(item) in fake_networks for item in rule.get("ip_cidr", []))
+                )
+                or (
+                    isinstance(rule.get("domain_suffix"), list)
+                    and any(str(item) in youtube_quic_domains for item in rule.get("domain_suffix", []))
+                )
+            )
         )
     ]
     insert_at = len(rules)
@@ -1089,7 +1105,9 @@ def apply_fakeip_quic_policy(config, groups):
         ):
             insert_at = min(insert_at, index)
             break
-    # FakeIP 的 UDP/443 必须排在 sniff 前，否则 FakeIP 可能先被还原成域名，导致 ip_cidr 阻断失效。
+    # FakeIP 视频连接会被 sing-box 还原成域名，路由阶段不一定还能按 FakeIP CIDR 命中；这里只收窄到 YouTube/Google 视频域名。
+    rules.insert(insert_at, {"network": "udp", "port": 443, "domain_suffix": youtube_quic_domains, "outbound": "block"})
+    # 同时保留 CIDR 保护，覆盖尚未还原域名的 FakeIP UDP/443；不能扩大到全部 UDP，否则会影响游戏和语音。
     rules.insert(insert_at, {"network": "udp", "port": 443, "ip_cidr": [fakeip4, fakeip6], "outbound": "block"})
 
 
@@ -2662,6 +2680,12 @@ def current_proxy_payload(test_delays=False):
     return {"proxy": get_proxy_state(), "delays": get_node_delays(test=test_delays)}
 
 
+def current_proxy_payload_after_probe(test_delays=False):
+    delays = get_node_delays(test=test_delays)
+    # 主动测速可能刚刚改变 urltest 的 Auto.now；返回给 UI 前必须重新读取运行态，避免显示旧选择。
+    return {"proxy": get_proxy_state(), "delays": delays}
+
+
 def get_node_delays(test=False):
     if test:
         return refresh_proxy_delays()
@@ -2861,6 +2885,7 @@ def apply_proxy_default(tag):
     proxy = set_proxy_now_checked(tag)
     # sing-box 重启后 Auto 的 now/history 可能短暂为空，主动触发一次测速，避免 UI 新增节点后看不到 Auto 当前判断。
     auto_probe = test_node_delay("Auto", timeout_ms=8000) if "Auto" in tags else None
+    proxy_after_probe = get_proxy_state()
     if not proxy["ok"]:
         return {
             "ok": False,
@@ -2885,6 +2910,7 @@ def apply_proxy_default(tag):
         "tproxySync": tproxy_sync,
         "proxy": proxy,
         "autoProbe": auto_probe,
+        "proxyAfterProbe": proxy_after_probe,
         "maintenance": maintenance_status(),
         "state": load_state(),
     }
@@ -2961,8 +2987,8 @@ def import_backup_payload(payload):
             "tproxySync": None,
         }
     tproxy_sync = sync_tproxy(nodes=nodes, groups=groups, normalized_lists=normalized_lists)
-    # 备份导入会重建节点和重启 sing-box，旧 history 不能代表新运行态；成功后立即测速，避免 UI 把可用节点显示成未检测。
-    proxy_payload = current_proxy_payload(test_delays=True)
+    # 备份导入会重建节点和重启 sing-box，旧 history 不能代表新运行态；成功后立即测速并重新读取 Auto.now。
+    proxy_payload = current_proxy_payload_after_probe(test_delays=True)
     return {
         "ok": True,
         "error": "",
@@ -3116,7 +3142,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error_json("Unauthorized", 401)
                 return
             query = dict(item.split("=", 1) for item in parsed.query.split("&") if "=" in item)
-            self.send_json({"delays": get_node_delays(test=query.get("test") == "1")})
+            if query.get("test") == "1":
+                self.send_json(current_proxy_payload_after_probe(test_delays=True))
+            else:
+                self.send_json({"delays": get_node_delays(test=False)})
             return
         if parsed.path == "/api/dns-delays":
             if not self.authorized():

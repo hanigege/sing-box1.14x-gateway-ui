@@ -17,6 +17,14 @@ GROUPS_PATH = MANAGER_DIR / "groups.json"
 INITIAL_NODES_FILE = os.environ.get("SING_BOX_INITIAL_NODES_FILE", "")
 DEFAULT_FAKE4 = "28.0.0.0/8"
 DEFAULT_FAKE6 = "2001:2::/64"
+YOUTUBE_QUIC_DOMAINS = [
+    "googlevideo.com",
+    "youtube.com",
+    "youtube-nocookie.com",
+    "ytimg.com",
+    "ggpht.com",
+    "googleusercontent.com",
+]
 
 
 def ask(prompt, default=""):
@@ -264,8 +272,10 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
             ],
             "rules": [
                 {"inbound": dns_inbounds, "action": "hijack-dns"},
-                # FakeIP 的 UDP/443 必须排在 sniff 前，否则 FakeIP 可能先被还原成域名，导致 ip_cidr 阻断失效。
+                # 保留 CIDR 兜底，覆盖尚未还原域名的 FakeIP UDP/443；不能扩大到全部 UDP/443。
                 {"network": "udp", "port": 443, "ip_cidr": [fake4, fake6], "outbound": "block"},
+                # FakeIP 视频连接可能在路由阶段已还原成域名；再按 YouTube/Google 视频域名收窄阻断 QUIC。
+                {"network": "udp", "port": 443, "domain_suffix": YOUTUBE_QUIC_DOMAINS, "outbound": "block"},
                 {"inbound": "tproxy-in", "action": "sniff", "sniffer": ["tls", "http"], "timeout": "300ms"},
                 {"rule_set": "custom-blacklist", "outbound": "block"},
                 {"rule_set": "custom-whitelist", "outbound": "direct"},
